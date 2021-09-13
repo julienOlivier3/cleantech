@@ -3,8 +3,8 @@
 .RData
 .Ruserdata
 .ipynb_checkpoints
-.ipynb
+*.ipynb
 02_Code/config.py
-02_Code/__pycahce__
+02_Code/__pycache__
 01_Data
 

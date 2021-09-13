@@ -1,0 +1,335 @@
+# ---
+# jupyter:
+#   jupytext:
+#     formats: ipynb,py:light
+#     text_representation:
+#       extension: .py
+#       format_name: light
+#       format_version: '1.5'
+#       jupytext_version: 1.10.2
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
+# # Connect to PATSTAT and Extract Patent Data of German Companies
+
+# ## Setup
+
+import config # configuration files includes API keys and paths
+import pandas as pd
+import numpy as np
+from sqlalchemy import types, create_engine
+import cx_Oracle
+from pyprojroot import here
+
+# ## Extract Data 
+
+# The following functions connect to the PATSTAT database.
+
+cx_Oracle.init_oracle_client(lib_dir=config.PATH_TO_ORACLE_CLIENT) # path to Oracle instantclient (if not in PATH)
+patstat_connection_string = 'oracle+cx_oracle://' + config.PATSTAT_USER + ':' + config.PATSTAT_PASSWORD + '@ora4.zew-private.de:1521/test' # [DB_FLAVOR]+[DB_PYTHON_LIBRARY]://[USERNAME]:[PASSWORD]@[DB_HOST]:[PORT]/[DB_NAME] - adjust as needed
+engine = create_engine(patstat_connection_string) # engine leads to PATSTAT
+
+# Check whether connection has been successfully established.
+
+len(engine.table_names()[0:3]) == 3
+
+# In the following aplication we analyze PATSTAT patent applications from companies found in the Mannheim Enterprise Panel (MUP).
+
+# Read match between EPO and MUP entities
+df_epo2vvc = pd.read_csv(here("./01_Data/01_Patents/epo2vvc2019best.txt"), sep='\t')
+
+# Capitalize column names
+df_epo2vvc.columns = [x.upper() for x in df_epo2vvc.columns]
+
+df_epo2vvc.head(3)
+
+# How many distinct patent applications are there?
+len(df_epo2vvc.APPLN_ID.drop_duplicates())
+
+# How many distinct patent applicants (companies) are there?
+len(df_epo2vvc.CREFO.drop_duplicates())
+
+# %%time
+# Write df into database
+df_epo2vvc[['APPLN_ID']].drop_duplicates().reset_index(drop=True).to_sql(
+    'EPO2VVC'.lower(),
+    engine,
+    if_exists='replace',
+    index=False,
+    chunksize=500,
+    dtype={
+        "APPLN_ID": types.VARCHAR(20),
+    }
+)
+
+# Create index to make everything faster 
+with engine.connect() as connection:
+    connection.execute('create index epo2vvc_ix on EPO2VVC(appln_id)')
+
+# %%time
+# Create df with patent applications of MUP firms and the respective CPC classes
+df_cpcs = pd.read_sql('select * from epo2vvc t1 left join A20224_APPLN_CPC t2 on t1.appln_id=t2.appln_id', engine)
+
+# Save results for later usage. Note this dataset has long format, i.e. one row presents one of (the possibly many) CPC classes attached to a patent application
+df_cpcs.iloc[:,[0,2]].to_csv(here("./01_Data/01_Patents/epo2vvc_cpc_classes.txt"), sep='\t', encoding='utf-8', index=False)
+
+# %%time
+# Create df with patent applications of MUP firms and the respective abstracts
+df_abs = pd.read_sql('select * from epo2vvc t1 left join A20203_APPLN_ABSTR t2 on t1.appln_id=t2.appln_id', engine)
+
+# Capitalize column names
+df_abs.columns = [x.upper() for x in df_abs.columns]
+
+df_abs.shape
+
+df_abs.head(3)
+
+# Abstract names are spread across at most 4 columns in the Oracle database. The following lines of code join these columns into one column representing the patent abstract of the respective patent application.
+
+# Reduce df to the relevant variables only
+df_abs = df_abs[['APPLN_ID','TEIL1','TEIL2','TEIL3','TEIL4','APPLN_ABSTRACT_LG','LEN_ABSTRACT']]
+df_abs = df_abs.iloc[:,[0, 2, 3, 4, 5, 6, 7]]
+
+df_abs.head(3)
+
+# Merge 4 columns into one column considering that not all abstracts spread over all 4 columns
+from tqdm import tqdm
+temp = []
+for i in tqdm(range(0, len(df_abs))):
+    df_temp = df_abs.iloc[i]
+    if pd.notna(df_temp.TEIL4):
+        temp.append((df_temp.APPLN_ID, (df_temp.TEIL1 + ' ' + df_temp.TEIL2 + ' ' + df_temp.TEIL3 + ' ' + df_temp.TEIL4)))
+    elif pd.notna(df_temp.TEIL3):
+        temp.append((df_temp.APPLN_ID, (df_temp.TEIL1 + ' ' + df_temp.TEIL2 + ' ' + df_temp.TEIL3)))
+    elif pd.notna(df_temp.TEIL2):
+        temp.append((df_temp.APPLN_ID, (df_temp.TEIL1 + ' ' + df_temp.TEIL2)))
+    else:
+        temp.append((df_temp.APPLN_ID, df_temp.TEIL1))
+
+# Create temporary df
+df_temp = pd.DataFrame(temp, columns=['APPLN_ID', 'ABSTRACT'])
+
+# Merge temporary df back to main df - now with with patent abstracts only in one column
+df_abs = df_abs.merge(df_temp, on = 'APPLN_ID')
+df_abs = df_abs[['APPLN_ID', 'ABSTRACT', 'APPLN_ABSTRACT_LG', 'LEN_ABSTRACT']]
+
+df_abs = df_abs.rename(columns = {'APPLN_ABSTRACT_LG': 'ABSTRACT_LANG', 'LEN_ABSTRACT': 'ABSTRACT_LEN'})
+
+# Some abstract texts are not in English. Translate patent abstracts in any other language into English.
+
+df_abs.ABSTRACT_LANG.value_counts(dropna=False)
+
+df_temp = df_abs.loc[(df_abs.ABSTRACT_LANG!='en') & (df_abs.ABSTRACT_LANG.notnull()),:].set_index('APPLN_ID', drop=True)
+
+# Number of non-English abstracts
+df_temp.shape
+
+# Load function translation_handler() which relies on module deep_translator in order to translate abtsracts
+from util import translation_handler
+
+# + jupyter={"outputs_hidden": true} tags=[]
+# Conduct translation
+temp = list()
+for i in tqdm(range(0, len(df_temp))):
+     temp.append((df_temp.index[i], translation_handler(df_temp.iloc[i]['ABSTRACT'])))
+# -
+
+# Create temporary df
+df_temp = pd.DataFrame(temp, columns=['APPLN_ID', 'ABSTRACT'])
+
+# Merge temporary df back to main df - now with translated patent abstracts
+df_temp = df_abs.merge(df_temp, on='APPLN_ID', how='left')
+
+df_temp['ABSTRACT'] = np.where(df_temp['ABSTRACT_y'].isnull(), df_temp['ABSTRACT_x'], df_temp['ABSTRACT_y'])
+
+df_abs = df_temp[['APPLN_ID', 'ABSTRACT', 'ABSTRACT_LANG', 'ABSTRACT_LEN']]
+
+df_abs.shape
+
+df_abs
+
+# ## Aggregate Data 
+
+# According to EPO, the Cooperative Patent Classification (CPC) is an extension of the IPC and is jointly managed by the EPO and the US Patent and Trademark Office.
+# We now aggregate the CPC information both at patent level and later at firm level to get an idea to which technological fields the patents relate to and to proxy the technological profiles of firms.
+
+# ### CPC Level 
+
+df_cpcs = pd.read_csv(here("./01_Data/01_Patents/epo2vvc_cpc_classes.txt"), sep='\t', encoding='utf-8')
+
+df_cpcs.head(3)
+
+# Uppercase column names and convert APPLN_ID as integer variable
+df_cpc = df_cpcs.copy()
+df_cpc.columns = [x.upper() for x in df_cpc.columns]
+
+n1 = len(df_cpc.drop_duplicates('APPLN_ID'))
+
+# Drop patents w/o CPC class
+df_cpc = df_cpc.loc[df_cpc.CPC_CLASS_SYMBOL.notnull(),:]
+
+n2 = len(df_cpc.drop_duplicates('APPLN_ID'))
+n1 - n2, round((n1 - n2)/n1, 5)
+
+# For 177 patents, i.e. less than 0.1% no CPC information exists. This is negligible.
+
+# CPC is divided into nine sections, A-H and Y, which in turn are sub-divided into classes, sub-classes, groups and sub-groups. There are approximately 250 000 classification entries. For now, I am only interested in the sections for A-H. In case of section Y, I am particularly interested in the Y02 class. According to Angelucci et al. ([2018](https://www.sciencedirect.com/science/article/pii/S0172219016300618)), EPO has developed a dedicated classification scheme for CPC. This classification scheme is the starting point for developing a NLP model capable of identifying cleantech firms.
+
+# Extract CPC section from CPC class information 
+import re
+df_cpc['CPC'] = df_cpc.CPC_CLASS_SYMBOL.apply(lambda x: re.search(r'A|B|C|D|E|F|G|H|(Y02\w{1})|(Y\d\d)', x).group(0))
+
+df_cpc.CPC.value_counts(dropna=False)
+
+# Create seperate Y02 class column
+df_cpc['Y02'] = df_cpc.CPC_CLASS_SYMBOL.apply(lambda x: re.search(r'Y02\w{1}', x).group(0) if re.search(r'Y02\w{1}', x) else np.nan)
+
+df_cpc.Y02.value_counts(dropna=False)
+
+# Drop duplicates in APPLN_ID, CPC and Y02
+df_cpc = df_cpc[['APPLN_ID', 'CPC', 'Y02']].drop_duplicates().reset_index(drop=True)
+
+df_cpc.shape
+
+# For aggregating from CPC level to patent level we want to know how much percent of the patent relates to which CPC class.
+
+from collections import Counter
+Counter(['Y02A', 'Y02B', 'A', 'B', 'C'])
+
+
+# This function calculates the relative importance of the CPC class for the patent
+def counter_to_relative(x):
+    counter = Counter(x)
+    total_count = sum(counter.values())
+    relative = {}
+    for key in counter:
+        relative[key] = counter[key] / total_count
+    return relative
+
+
+counter_to_relative(['Y02A', 'Y02B', 'A', 'B', 'C'])
+
+
+# This function extracts the relative importance of the Y02 classes only
+def agg_cpc(x):
+    y02s = ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']
+    if any([cpc for cpc in x if cpc in y02s]):
+        relative = counter_to_relative(x)
+        relative_y02 = {i: relative[i] for i in y02s if relative.get(i) is not None}
+        return relative_y02
+    else:
+        return {}
+
+
+agg_cpc(['Y02A', 'Y02B', 'A', 'B', 'C'])
+
+# ### Patent Level 
+
+# Aggregate patent data from CPC level to patent level.
+
+# Apply agg_cpc()
+df_pat = df_cpc.groupby('APPLN_ID').agg({'CPC': lambda x: list(set(x))}).reset_index()
+df_pat['Y02_dict'] = df_pat.CPC.apply(lambda x: agg_cpc(x))
+
+df_pat.shape
+
+# Calculate the overall relative importance of Y02 (sum over values in Y02 dict) 
+df_pat['Y02_imp'] = df_pat.Y02_dict.apply(lambda x: sum(x.values()))
+
+# Look at distribution of Y02 importance
+df_pat.Y02_imp.value_counts()
+
+# Create Y02 identifier
+df_pat['Y02'] = df_pat.Y02_imp.apply(lambda x: 1 if x > 0 else 0)
+
+df_pat.Y02.value_counts(normalize=True)
+
+# 7% of patents are cleantech-related patents.
+
+# Merge abstract texts
+
+df_abs.shape
+
+df_abs.dtypes
+
+df_pat.shape
+
+df_pat.dtypes
+
+df_pat['APPLN_ID'] = df_pat.APPLN_ID.astype(str)
+
+df_abs['APPLN_ID'] = df_abs.APPLN_ID.astype(int)
+df_pat = df_pat.merge(df_abs, on='APPLN_ID', how='left')
+
+df_pat.shape
+
+df_pat.to_pickle(here(r".\01_Data\01_Patents\epo2vvc_patents.pkl"))
+
+# ### Firm Level 
+
+# Aggregate data from patent level to firm level.
+
+df_epo2vvc.shape
+
+df_epo2vvc = df_epo2vvc.merge(df_pat.drop(columns=['ABSTRACT_LANG', 'ABSTRACT_LEN']), on='APPLN_ID', how='left')
+
+df_epo2vvc.shape
+
+# Drop columns which are not of interest
+df_epo2vvc.drop(columns=['EQUAL', 'BESTCREFO', 'BESTRANK', 'APPLN_KIND'], inplace=True)
+
+# Drop patents w/o CPC info
+df_epo2vvc = df_epo2vvc.loc[df_epo2vvc.CPC.notnull(),:]
+
+df_epo2vvc.shape
+
+# Convert information whether patent has been granted or not to integer
+df_epo2vvc['GRANTED'] = df_epo2vvc.GRANTED.map({'N': 0, 'Y': 1}).copy()
+
+df_epo2vvc.head(3)
+
+n1 = len(df_epo2vvc)
+n2 = len(df_epo2vvc.loc[df_epo2vvc.ABSTRACT.isnull(),:]) # number of patents w/o abstract texts
+n2, round(n2/n1, 5)
+
+# 1218 patents do not have an abstract. This is less than 0.5% and thus negligible.
+
+df_epo2vvc = df_epo2vvc.loc[df_epo2vvc.ABSTRACT.notnull()]
+
+df_epo2vvc.shape
+
+# Now conduct aggregation from patent level to firm level
+df_firm = df_epo2vvc.groupby('CREFO').agg(
+    {'PERSON_ID': lambda x: list(set(x)),
+     'APPLN_ID': lambda x: list(set(x)),
+     'APPLN_NR': lambda x: list(set(x)),
+     'APPLN_FILI': lambda x: list(set(x)),
+     'INPADOC_FA': lambda x: list(set(x)),
+     'EARLIEST_F': lambda x: list(x),
+     'INPADOC_FA': lambda x: list(set(x)),
+     'GRANTED': lambda x: x.mean(),
+     'CPC': lambda x: [i for j in x for i in j],
+     #'Y02_imp': lambda x: x.mean(),
+     'ABSTRACT': lambda x: ' '.join(x)
+    }
+)
+
+# Add additional information
+df_firm['N_PATENTS'] = df_firm.EARLIEST_F.apply(len)                       # number of patent apllications by firm
+df_firm['Y02_dict'] = df_firm.CPC.apply(lambda x: agg_cpc(x))              # importance of each of the Y02 classes
+df_firm['Y02_imp'] = df_firm.Y02_dict.apply(lambda x: sum(x.values()))     # overall importance of Y02
+df_firm['Y02'] = df_firm.Y02_imp.apply(lambda x: 1 if x > 0 else 0)        # create Y02 identifier
+
+df_firm.Y02.value_counts(normalize=True)
+
+# 16% of firms have applied for a clean-tech related patent.
+
+# Think further how aggregation is done best here:
+# - abstracts only of Y02 patents?
+# - filing dates?
+# - ...
+
+df_firm.head(3)
