@@ -14,21 +14,25 @@
 # ---
 
 import pandas as pd
+import numpy as np
 import pickle as pkl
 from pyprojroot import here
+from tqdm import tqdm
+from sklearn.metrics import classification_report
 
 # Encoding issue here!
 df = pd.read_pickle(here(r'.\01_Data\01_Patents\epo2vvc_patents.pkl'))
 
 df.shape
 
-df
-
 # There are some non-English texts (should not be there as they were translated in 01_access_patstat.py) <- rerun. For now drop these.
 df = df.loc[df.ABSTRACT_LANG=='en',:]
 
 # Drop patents with missing entries
 df = df.loc[df.ABSTRACT.notnull(),:]
+
+# Drop patents with very short (uninformative) patent abstracts
+df = df.loc[df.ABSTRACT.apply(len)>30,:]
 
 # Add label in string format
 df['Y02_string'] = df.Y02.map({0: ['non_cleantech'], 1: ['cleantech']})
@@ -49,7 +53,7 @@ X_test = df_test.sample(1000).ABSTRACT.values
 y_train = df_train.sample(1000).Y02.values
 y_test = df_test.sample(1000).Y02.values
 
-# + [markdown] tags=[]
+# + [markdown] tags=[] heading_collapsed="true"
 # # Transformer language model 
 # -
 
@@ -170,7 +174,11 @@ print(classification_report(y_true = df_test_pred.true_Y02, y_pred = df_test_pre
 
 # Decent precision but low recall.
 
+# See [here](https://github.com/julienOlivier3/Text_Classification_Capstone) for alternatively training a neural network.
+
+# + [markdown] heading_collapsed="true" tags=[]
 # # Labelled Topic Model 
+# -
 
 import tomotopy as tp
 
@@ -186,7 +194,7 @@ model = tp.PLDAModel(tw=tp.TermWeight.IDF, topics_per_label=1,
                      #latent_topics=8,
                      seed=333)
 
-for index, row in tqdm(df_train.head(10000).iterrows()):
+for index, row in tqdm(df_train.iterrows()):
     clean_document = row.ABSTRACT.split()
     labels = row.CPC
 
@@ -200,7 +208,7 @@ for index, row in tqdm(df_train.head(10000).iterrows()):
 # -
 
 model.burn_in = 5
-print('Starting training model')
+print('Starting training model:')
 for i in range(0, 100, 10):
     model.train(10)
     print('Iteration: {}\tLog-likelihood: {}'.format(i, model.ll_per_word))
@@ -211,36 +219,37 @@ model.summary(topic_word_top_n=10)
 def get_prediction_df(df, topic_dist, t_names):
         
     df_output = df.copy()
-    n_firms = len(df)
+    n_rows = len(df)
     n_topics = len(t_names)
     
     y02s = ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']
-    latents = sorted([t for t in t_names if t not in y02s])
+    non_y02s = sorted([t for t in t_names if t not in y02s])
     y02_ids = [t_names.index(y02) for y02 in y02s]
-    latent_ids = [t_names.index(l) for l in latents]
+    non_y02s_ids = [t_names.index(l) for l in non_y02s]
     
-    y02 = [{y02s[i]: round(topic_dist[c][y02_ids[i]],3) for i in range(len(y02s))} for c in range(n_firms)]
-    latent = [{latents[i]: round(topic_dist[c][latent_ids[i]],3) for i in range(len(latents))} for c in range(n_firms)]
-    df_output['Y02_PRED_DIST'] = y02
-    df_output['Y02_PRED_LATENT'] = latent
-    df_output['Y02_PRED_PROBA'] = [round(sum(c.values()), 3) for c in y02]
+    # Probability distribution across cleantech patents
+    dist_y02 = [{y02s[i]: round(topic_dist[c][y02_ids[i]], 5) for i in range(len(y02s))} for c in range(n_rows)]
+    df_output['Y02_PRED_dict'] = dist_y02
+    
+    # Probability distribution across non-cleantech patents
+    #dist_non_y02 = [{non_y02s[i]: round(topic_dist[c][non_y02_ids[i]],3) for i in range(len(non_y02s))} for c in range(n_rows)]
+    #df_output['NON_Y02_PRED_dict'] = dist_non_y02
+    
+    # Cleantech importance
+    df_output['Y02_PRED_imp'] = [round(sum(c.values()), 5) for c in dist_y02]
 
-    
     return df_output
 
 
-def classification_res(df, threshold=0.5):
-    y02s = ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']
-    y_true = np.array(df.Y02_CLASSES.apply(lambda x: any(i in x for i in y02s))).astype(int)
-    y_pred = np.array(df.Y02_PRED_PROBA >= threshold).astype(int)
-    
-    print(classification_report(y_true, y_pred))
-
+# Create list of topic names in right order
+t_names = [t[0] for t in doc_inst[0].labels]
+#[t_names.append('L' + str(lt)) for lt in range(1,model.latent_topics+1)]
+print(t_names)
 
 # +
 # %time
 doc_inst = []
-for index, row in tqdm(df_train.head(10000).iterrows()):
+for index, row in tqdm(df_test.iterrows()):
     clean_document = row.ABSTRACT.split()
     labels = row.CPC
 
@@ -253,14 +262,99 @@ for index, row in tqdm(df_train.head(10000).iterrows()):
     doc_inst.append(model.make_doc(clean_document))
     
 #doc_inst = [model.make_doc(row.ABSTRACT.split()) for index, row in tqdm(df_train.iterrows())]
-topic_dist_train, ll_test = model.infer(doc_inst, iter = 100, together = True)
+topic_dist, ll = model.infer(doc_inst, iter = 100, together = True)
 # -
+
+len(topic_dist), ll
+
+df_test_pred = get_prediction_df(df_test, topic_dist, t_names)
+
+df_test_pred.Y02_PRED_imp.plot(kind='hist', bins=100, logy=True)
+
+
+def classification_res(df, target_names, threshold=0.5):
+    y_true = np.array(df.Y02).astype(int)
+    y_pred = np.array(df.Y02_PRED_imp >= threshold).astype(int)
+    
+    print(classification_report(y_true, y_pred, target_names=target_names, zero_division=0))
+
+
+[print(t, classification_res(df_test_pred, target_names=['non_cleantech', 'cleantech'], threshold=t)) for t in np.arange(0.0, 1.0, 0.1)]
+
+# Discriminating between cleantech and non-cleantech patents does not work well with topic models.
+
+
+
+
+
+df_train1.append(df_train2)
+
+df_train1 = df_train.loc[df_train.Y02==1,:]
+df_train2 = df_train.loc[df_train.Y02==0,:].sample(len(df_train1))
+df_temp = df_train1.append(df_train2)
+
+# +
+model = tp.PLDAModel(tw=tp.TermWeight.IDF, topics_per_label=1, 
+                     #latent_topics=8,
+                     seed=333)
+
+for index, row in tqdm(df_temp.iterrows()):
+    clean_document = row.ABSTRACT.split()
+    labels = row.CPC
+
+    # First round of text cleaning
+    clean_document = [token.lower().rstrip(string.punctuation).lstrip(string.punctuation) for token in clean_document 
+                      if not token.isdecimal() and not pattern1.match(token) and not all([j in string.punctuation for j in [c for c in token]]) and len(token)>1]
+    # Second round of string cleaning removing stop words
+    clean_document = [token for token in clean_document if token not in stoplist]
+        
+    model.add_doc(clean_document, labels=labels)
+# -
+
+model.burn_in = 5
+print('Starting training model:')
+for i in range(0, 100, 10):
+    model.train(10)
+    print('Iteration: {}\tLog-likelihood: {}'.format(i, model.ll_per_word))
+
+model.summary(topic_word_top_n=10)
 
 # Create list of topic names in right order
 t_names = [t[0] for t in doc_inst[0].labels]
 #[t_names.append('L' + str(lt)) for lt in range(1,model.latent_topics+1)]
 print(t_names)
 
-df_temp = get_prediction_df(df_train, topic_dist_train, t_names)
+df_test1 = df_test.loc[df_test.Y02==1,:]
+df_test2 = df_test.loc[df_test.Y02==0,:].sample(len(df_test1))
+df_temp = df_test1.append(df_test2)
 
-df_temp
+# +
+# %time
+doc_inst = []
+for index, row in tqdm(df_temp.iterrows()):
+    clean_document = row.ABSTRACT.split()
+    labels = row.CPC
+
+    # First round of text cleaning
+    clean_document = [token.lower().rstrip(string.punctuation).lstrip(string.punctuation) for token in clean_document 
+                      if not token.isdecimal() and not pattern1.match(token) and not all([j in string.punctuation for j in [c for c in token]]) and len(token)>1]
+    # Second round of string cleaning removing stop words
+    clean_document = [token for token in clean_document if token not in stoplist]
+        
+    doc_inst.append(model.make_doc(clean_document))
+    
+#doc_inst = [model.make_doc(row.ABSTRACT.split()) for index, row in tqdm(df_train.iterrows())]
+topic_dist, ll = model.infer(doc_inst, iter = 100, together = True)
+# -
+
+len(topic_dist), ll
+
+df_test_pred = get_prediction_df(df_temp, topic_dist, t_names)
+
+df_test_pred.Y02_PRED_imp.plot(kind='hist', bins=100, logy=True)
+
+[print(t, classification_res(df_test_pred, target_names=['non_cleantech', 'cleantech'], threshold=t)) for t in np.arange(0.0, 1.0, 0.1)]
+
+# A balanced training and test data set worsens results further.
+
+# Labelled LDA models rather serve as way to build semantic descriptions of clean technologies. Maybe still a minor research contribution?
