@@ -13,6 +13,7 @@
 #     name: python3
 # ---
 
+import config
 import pandas as pd
 import numpy as np
 import pickle as pkl
@@ -109,7 +110,7 @@ classifier(
 
 # The problem of transformer models is that they are made for shorter sequences of text. Later on in the project the classifier is supposed to be applied on longer texts from corporate websites. For this purpose a more traditional text classification with heuristics from information retrieval (e.g. tf-idf) will be more suitable. 
 
-# + [markdown] tags=[]
+# + [markdown] tags=[] heading_collapsed="true"
 # # Tf-idf text classification model
 # -
 
@@ -176,7 +177,7 @@ print(classification_report(y_true = df_test_pred.true_Y02, y_pred = df_test_pre
 
 # See [here](https://github.com/julienOlivier3/Text_Classification_Capstone) for alternatively training a neural network.
 
-# + [markdown] heading_collapsed="true" tags=[]
+# + [markdown] tags=[]
 # # Labelled Topic Model 
 # -
 
@@ -190,6 +191,7 @@ import string
 pattern1 = re.compile("^\(\d{1,}\)$")
 
 # +
+# ToDo: Add lemmatization here
 model = tp.PLDAModel(tw=tp.TermWeight.IDF, topics_per_label=1, 
                      #latent_topics=8,
                      seed=333)
@@ -283,10 +285,6 @@ def classification_res(df, target_names, threshold=0.5):
 
 # Discriminating between cleantech and non-cleantech patents does not work well with topic models.
 
-
-
-
-
 df_train1.append(df_train2)
 
 df_train1 = df_train.loc[df_train.Y02==1,:]
@@ -358,3 +356,128 @@ df_test_pred.Y02_PRED_imp.plot(kind='hist', bins=100, logy=True)
 # A balanced training and test data set worsens results further.
 
 # Labelled LDA models rather serve as way to build semantic descriptions of clean technologies. Maybe still a minor research contribution?
+
+# Idea: Take the semantic description of the clean technologies (i.e. the most relevant words per topic in the topic model) as basis to scan the corporate websites. There are two options for this approach:
+# - simple scan of the websites for keywords
+# - scan of the websites in vector space, i.e. build clean technology vectors based on most relevant words and calculate similarity to the websites vectorised words.
+
+# For this purpose, extract the most relevant words per topic from the topic model.
+
+model.topic_label_dict
+
+n_relevant_words = 10000
+df_topic_words = pd.DataFrame(columns = ['Topic', 'Word', 'Prob'])
+for ind, topic in enumerate(model.topic_label_dict):
+    temp = pd.DataFrame(model.get_topic_words(topic_id=ind, top_n=n_relevant_words), columns=['Word', 'Prob'])
+    temp['Topic'] = topic
+    df_topic_words = df_topic_words.append(temp)
+
+df_topic_words
+
+# Alternative look at data:
+
+pd.concat([pd.DataFrame(model.get_topic_words(topic_id=ind, top_n=10000), columns=[topic+'_words', topic+'_prob']) for ind, topic in enumerate(model.topic_label_dict)], axis=1)
+
+# Get a semantic representation in vector space.
+
+df_topic_words.loc[df_topic_words.Topic=='Y02C']
+
+embeddings_index = {}
+with open(config.PATH_TO_GLOVE + '/glove.6B.50d.txt', encoding='utf-8') as f:
+    for line in f:
+        word, coefs = line.split(maxsplit=1)
+        coefs = np.fromstring(coefs, "f", sep=" ")
+        embeddings_index[word] = coefs
+print("Found %s word vectors." % len(embeddings_index))
+
+semantic_vectors = {}
+for topic in model.topic_label_dict:
+    temp = []
+    for word in tqdm(df_topic_words.loc[df_topic_words.Topic==topic, 'Word']):
+        embedding = embeddings_index.get(word, None)
+        if isinstance(embedding, np.ndarray):
+            temp.append(list(embedding))
+        vec = np.array(temp)
+    semantic_vectors[topic] = vec
+
+# Calculate cosine similarity:
+
+# cosine similarity = $\frac{\sum_{i=1}^n A_i B_i}{\sqrt{\sum_{i=1}^n A_i^2} \sqrt{\sum_{i=1}^n B_i^2}}$
+
+# +
+A = np.array([[1, 0.2, 0.1],
+             [0.8, 0.1, 0.2],
+             [-0.8, -0.1, -0.2]])
+
+B = np.array([[0.3, 0.2, 0.2],
+             [0.8, 1, -0.2],
+             [-0.1, -0.1, -0.2],
+             [0.8, -0.1, -0.8],
+             [0.5, -0.5, -0.9]])
+
+
+# -
+
+def cosine_similarity_vectors(v1, v2):
+    numerator=np.dot(v1, v2)
+    denumerator1 = np.sqrt(np.sum(np.square(v1)))
+    denumerator2 = np.sqrt(np.sum(np.square(v2)))
+    return(numerator*1/(denumerator1*denumerator2))
+
+
+cosine_similarity_vectors(A[0], A[1])
+
+
+def cosine_similarity_matrix(M):
+    similarity = np.dot(M, M.T)
+    
+    # squared magnitude of preference vectors (number of occurrences)
+    square_mag = np.diag(similarity)
+
+    # inverse squared magnitude
+    inv_square_mag = 1 / square_mag
+
+    # if it doesn't occur, set it's inverse magnitude to zero (instead of inf)
+    inv_square_mag[np.isinf(inv_square_mag)] = 0
+
+    # inverse of the magnitude
+    inv_mag = np.sqrt(inv_square_mag)
+
+    # cosine similarity (elementwise multiply by inverse magnitudes)
+    cosine = similarity * inv_mag
+    return(cosine.T * inv_mag)
+
+
+cosine_similarity_matrix(A)
+
+from sklearn.metrics.pairwise import cosine_similarity
+cosine_similarity(A)
+
+cosine_similarity(A, B)
+
+cosine_similarity_vectors(A[0], B[3])
+
+cosine_similarity(A, B).mean()
+
+temp=[]
+for ra in range(A.shape[0]):
+    for rb in range(B.shape[0]):
+        temp.append(cosine_similarity_vectors(A[ra], B[rb]))
+np.mean(temp)
+
+
+# Mean of upper/lower triangle of resulting matrix gives overall similarity between arrays in ndarray.
+
+def cosine_to_mean(M_cos):
+    return(M_cos[np.tril_indices(M_cos.shape[0], k=-1)])
+
+
+cosine_to_mean(cosine_similarity_matrix(A))
+
+cosine_to_mean(cosine_similarity_matrix(A)).mean()
+
+# Now apply to most relevant topic words yielded from topic model.
+
+y02c_cos = cosine_to_mean(cosine_similarity(y02c))
+
+y02c_cos.mean()
