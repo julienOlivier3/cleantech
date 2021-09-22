@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ---
 # jupyter:
 #   jupytext:
@@ -19,7 +20,9 @@ import numpy as np
 import pickle as pkl
 from pyprojroot import here
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 from sklearn.metrics import classification_report
+import seaborn as sns
 
 # Encoding issue here!
 df = pd.read_pickle(here(r'.\01_Data\01_Patents\epo2vvc_patents.pkl'))
@@ -400,6 +403,34 @@ for topic in model.topic_label_dict:
         vec = np.array(temp)
     semantic_vectors[topic] = vec
 
+# Number of top words with existing word vectors in Glove.
+
+for topic in model.topic_label_dict:
+    print(topic, '\t' , len(semantic_vectors[topic]))
+
+# Save semantic vectors to disk
+with open(here(r'.\03_Model\temp\semantic_vectors.pkl'), 'wb') as f:
+    pkl.dump(semantic_vectors, f)
+
+# From this picture it makes possibly sense to restrict the technology clusters in semantic vector space to the 5,000 most relevant terms.
+
+semantic_vectors5000 = {}
+for topic in model.topic_label_dict:
+    vec = semantic_vectors[topic][0:5000,]
+    semantic_vectors5000[topic] = vec
+
+for topic in model.topic_label_dict:
+    print(topic, '\t' , len(semantic_vectors5000[topic]))
+
+
+# Write a general function to extract semantic vectors of different size:
+
+def get_semantic_vectors(topic, n_words):
+    return(semantic_vectors[topic][0:n_words,])
+
+
+get_semantic_vectors('Y02C', 3)
+
 # Calculate cosine similarity:
 
 # cosine similarity = $\frac{\sum_{i=1}^n A_i B_i}{\sqrt{\sum_{i=1}^n A_i^2} \sqrt{\sum_{i=1}^n B_i^2}}$
@@ -478,6 +509,130 @@ cosine_to_mean(cosine_similarity_matrix(A)).mean()
 
 # Now apply to most relevant topic words yielded from topic model.
 
-y02c_cos = cosine_to_mean(cosine_similarity(y02c))
+df_topic_words.loc[df_topic_words.Topic=='Y02C'].head(10)
 
-y02c_cos.mean()
+for word in df_topic_words.loc[df_topic_words.Topic=='Y02C'].head(10).Word:
+    print('gas +', word, '\t', cosine_similarity_vectors(embeddings_index['gas'], embeddings_index[word]))
+
+# Cosine similarity between word vectors within Y02E class
+cosine_to_mean(cosine_similarity(semantic_vectors5000['Y02E'])).mean(), np.median(cosine_to_mean(cosine_similarity(semantic_vectors5000['Y02E'])))
+
+plt.hist(cosine_to_mean(cosine_similarity(semantic_vectors5000['Y02E'])), bins='auto')
+plt.show()
+
+# Cosine similarity between word vectors Y02E and Y02C classes
+cosine_similarity(semantic_vectors5000['Y02E'], semantic_vectors5000['Y02C']).mean(), np.median(cosine_similarity(semantic_vectors5000['Y02E'], semantic_vectors5000['Y02C']))
+
+plt.hist(cosine_similarity(semantic_vectors5000['Y02E'], semantic_vectors5000['Y02C']).flatten(), bins = 'auto') 
+plt.show()
+
+# Cosine similarity between word vectors Y02E and A classes
+cosine_similarity(semantic_vectors5000['Y02E'], semantic_vectors5000['C']).mean(), np.median(cosine_similarity(semantic_vectors5000['Y02E'], semantic_vectors5000['C']))
+
+plt.hist(cosine_similarity(semantic_vectors5000['Y02E'], semantic_vectors5000['C']).flatten(), bins = 'auto') 
+plt.show()
+
+# Look at similarity given a sentence.
+
+sent = 'We have 10 years of experience with modular capture plants, and over 50,000 operating hours, capturing CO2 from WtE, gas and coal fired power plants, refineries and cement industries. Our Advanced Carbon Capture technology has been applied across a wide range of industries onshore. We also offer an offshore version addressing emissions from oil and gas production. Our products and solutions cover both mid-range and large-scale emitters.'
+sent_embedding = np.array([list(embeddings_index[word]) for word in re.sub(r'\.|\,', '', sent).lower().split()])
+cosine_similarity(semantic_vectors5000['Y02C'], sent_embedding).flatten().mean()
+
+plt.hist(cosine_similarity(semantic_vectors5000['Y02C'], sent_embedding).flatten(), bins = 'auto') 
+plt.show()
+
+# How does within and between similarity depend on the number of words in the technologies' semantic space?
+
+# Work with semantic vectors of different sizes (limit the number of top words) and return mean and median cosine similarity.
+temp = []
+for topic in ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']:
+    for n_words in tqdm(range(10, 5000+1, 10)):
+        Y02_embedding = get_semantic_vectors(topic, n_words)
+        similarity = cosine_similarity(Y02_embedding, sent_embedding).flatten()
+        temp.append([topic, n_words, similarity.mean(), np.median(similarity)])
+df_temp = pd.DataFrame(temp, columns=['y02', 'n_words', 'mean', 'median'])
+
+sns.lineplot(data=df_temp, x='n_words', y='median', hue='y02')
+
+# One way to reduce noise is to ignore cosine similarities of word pairs below a certain threshhold.
+
+# Work with semantic vectors of different sizes (limit the number of top words) and return mean and median cosine similarity.
+temp = []
+for topic in ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']:
+    for n_words in tqdm(range(10, 5000+1, 10)):
+        Y02_embedding = get_semantic_vectors(topic, n_words)
+        similarity = cosine_similarity(Y02_embedding, sent_embedding).flatten()
+        top100 = similarity[np.argsort(-similarity)[:100]]
+        temp.append([topic, n_words, similarity.mean(), np.median(similarity),
+                     np.quantile(similarity, q=0.9), np.quantile(similarity, q=0.99), np.quantile(similarity, q=0.999),
+                    top100.mean(), top100.sum()])
+df_temp = pd.DataFrame(temp, columns=['y02', 'n_words', 'mean', 'median',
+                                     'q9', 'q99', 'q999', 'top100_mean', 'top100_sum'])
+
+df = pd.melt(df_temp, id_vars=['y02', 'n_words'], value_vars=['mean', 'median', 'q9', 'q99', 'q999', 'top100_mean', 'top100_sum'], var_name='measure', value_name='value')
+
+df.head(3)
+
+sns.relplot(
+    data=df,
+    x="n_words", y="value",
+    hue="y02",  col="measure", kind="line",
+    col_wrap=3, facet_kws=dict(sharey=False)
+)
+
+# How does it look like if we only take top words from one topic?
+
+# Work with semantic vectors of different sizes (limit the number of top words) and return mean and median cosine similarity.
+top_words = list(df_topic_words.loc[df_topic_words.Topic=='Y02C',].head(10).Word.values)
+sent_embedding = np.array([list(embeddings_index[word]) for word in top_words])
+temp = []
+for topic in ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']:
+    for n_words in tqdm(range(10, 5000+1, 10)):
+        Y02_embedding = get_semantic_vectors(topic, n_words)
+        similarity = cosine_similarity(Y02_embedding, sent_embedding).flatten()
+        top100 = similarity[np.argsort(-similarity)[:100]]
+        temp.append([topic, n_words, similarity.mean(), np.median(similarity),
+                     np.quantile(similarity, q=0.9), np.quantile(similarity, q=0.99), np.quantile(similarity, q=0.999),
+                    top100.mean(), top100.sum()])
+df_temp = pd.DataFrame(temp, columns=['y02', 'n_words', 'mean', 'median',
+                                     'q9', 'q99', 'q999', 'top100_mean', 'top100_sum'])
+
+df = pd.melt(df_temp, id_vars=['y02', 'n_words'], value_vars=['mean', 'median', 'q9', 'q99', 'q999', 'top100_mean', 'top100_sum'], var_name='measure', value_name='value')
+
+sns.relplot(
+    data=df,
+    x="n_words", y="value",
+    hue="y02",  col="measure", kind="line",
+    col_wrap=3, facet_kws=dict(sharey=False)
+)
+
+# Even if one takes the same words as listed in the semantic technology space, there is proximity but not extremely clear proximity. Why? Because the words within the semantic technology space have in part a great dissimilarity based on the pre-trained word vectors.
+
+# What if one takes a completely non-technical business model description?
+
+sent = 'Our little café with a pastry shop is not called Patisserie because it is exclusively French. On the contrary, we offer you a mixture of more than just one nation. We have made it our specialty to offer a small mix of French, English and German confectionery'
+sent_embedding = np.array([list(embeddings_index[word]) for word in re.sub(r'\.|\,', '', sent).lower().split()])
+cosine_similarity(semantic_vectors5000['Y02C'], sent_embedding).flatten().mean()
+
+# Work with semantic vectors of different sizes (limit the number of top words) and return mean and median cosine similarity.
+temp = []
+for topic in ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']:
+    for n_words in tqdm(range(10, 5000+1, 10)):
+        Y02_embedding = get_semantic_vectors(topic, n_words)
+        similarity = cosine_similarity(Y02_embedding, sent_embedding).flatten()
+        top100 = similarity[np.argsort(-similarity)[:100]]
+        temp.append([topic, n_words, similarity.mean(), np.median(similarity),
+                     np.quantile(similarity, q=0.9), np.quantile(similarity, q=0.99), np.quantile(similarity, q=0.999),
+                    top100.mean(), top100.sum()])
+df_temp = pd.DataFrame(temp, columns=['y02', 'n_words', 'mean', 'median',
+                                     'q9', 'q99', 'q999', 'top100_mean', 'top100_sum'])
+
+df = pd.melt(df_temp, id_vars=['y02', 'n_words'], value_vars=['mean', 'median', 'q9', 'q99', 'q999', 'top100_mean', 'top100_sum'], var_name='measure', value_name='value')
+
+# + tags=[]
+sns.relplot(
+    data=df,
+    x="n_words", y="value",
+    hue="y02",  col="measure", kind="line",
+    col_wrap=3, facet_kws=dict(sharey=False)
+)
