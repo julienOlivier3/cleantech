@@ -15,6 +15,8 @@
 # ---
 
 import config
+import re
+import string
 import pandas as pd
 import numpy as np
 import pickle as pkl
@@ -57,7 +59,7 @@ X_test = df_test.sample(1000).ABSTRACT.values
 y_train = df_train.sample(1000).Y02.values
 y_test = df_test.sample(1000).Y02.values
 
-# + [markdown] tags=[] heading_collapsed="true"
+# + [markdown] tags=[]
 # # Transformer language model 
 # -
 
@@ -189,8 +191,6 @@ import tomotopy as tp
 stoplist = ['for', 'a', 'of', 'the', 'and', 'to', 'in', 'at', 'an', 'on', 'this', 'is', 'are', 'it', 'the', 'and/or', 'i', 'wt', 'or', 'from', 'first', 'least']
 
 # Drop tokens of form: '(345)'
-import re
-import string
 pattern1 = re.compile("^\(\d{1,}\)$")
 
 # +
@@ -220,143 +220,10 @@ for i in range(0, 100, 10):
 
 model.summary(topic_word_top_n=10)
 
-
-def get_prediction_df(df, topic_dist, t_names):
-        
-    df_output = df.copy()
-    n_rows = len(df)
-    n_topics = len(t_names)
-    
-    y02s = ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']
-    non_y02s = sorted([t for t in t_names if t not in y02s])
-    y02_ids = [t_names.index(y02) for y02 in y02s]
-    non_y02s_ids = [t_names.index(l) for l in non_y02s]
-    
-    # Probability distribution across cleantech patents
-    dist_y02 = [{y02s[i]: round(topic_dist[c][y02_ids[i]], 5) for i in range(len(y02s))} for c in range(n_rows)]
-    df_output['Y02_PRED_dict'] = dist_y02
-    
-    # Probability distribution across non-cleantech patents
-    #dist_non_y02 = [{non_y02s[i]: round(topic_dist[c][non_y02_ids[i]],3) for i in range(len(non_y02s))} for c in range(n_rows)]
-    #df_output['NON_Y02_PRED_dict'] = dist_non_y02
-    
-    # Cleantech importance
-    df_output['Y02_PRED_imp'] = [round(sum(c.values()), 5) for c in dist_y02]
-
-    return df_output
-
-
-# Create list of topic names in right order
-t_names = [t[0] for t in doc_inst[0].labels]
-#[t_names.append('L' + str(lt)) for lt in range(1,model.latent_topics+1)]
-print(t_names)
-
-# +
-# %time
-doc_inst = []
-for index, row in tqdm(df_test.iterrows()):
-    clean_document = row.ABSTRACT.split()
-    labels = row.CPC
-
-    # First round of text cleaning
-    clean_document = [token.lower().rstrip(string.punctuation).lstrip(string.punctuation) for token in clean_document 
-                      if not token.isdecimal() and not pattern1.match(token) and not all([j in string.punctuation for j in [c for c in token]]) and len(token)>1]
-    # Second round of string cleaning removing stop words
-    clean_document = [token for token in clean_document if token not in stoplist]
-        
-    doc_inst.append(model.make_doc(clean_document))
-    
-#doc_inst = [model.make_doc(row.ABSTRACT.split()) for index, row in tqdm(df_train.iterrows())]
-topic_dist, ll = model.infer(doc_inst, iter = 100, together = True)
+# + active=""
+# # Save model to disk (deprecated)
+# model.save(here(r'.\03_Model\temp\PLDA_model.bin').__str__(), full=True)
 # -
-
-len(topic_dist), ll
-
-df_test_pred = get_prediction_df(df_test, topic_dist, t_names)
-
-df_test_pred.Y02_PRED_imp.plot(kind='hist', bins=100, logy=True)
-
-
-def classification_res(df, target_names, threshold=0.5):
-    y_true = np.array(df.Y02).astype(int)
-    y_pred = np.array(df.Y02_PRED_imp >= threshold).astype(int)
-    
-    print(classification_report(y_true, y_pred, target_names=target_names, zero_division=0))
-
-
-[print(t, classification_res(df_test_pred, target_names=['non_cleantech', 'cleantech'], threshold=t)) for t in np.arange(0.0, 1.0, 0.1)]
-
-# Discriminating between cleantech and non-cleantech patents does not work well with topic models.
-
-df_train1.append(df_train2)
-
-df_train1 = df_train.loc[df_train.Y02==1,:]
-df_train2 = df_train.loc[df_train.Y02==0,:].sample(len(df_train1))
-df_temp = df_train1.append(df_train2)
-
-# +
-model = tp.PLDAModel(tw=tp.TermWeight.IDF, topics_per_label=1, 
-                     #latent_topics=8,
-                     seed=333)
-
-for index, row in tqdm(df_temp.iterrows()):
-    clean_document = row.ABSTRACT.split()
-    labels = row.CPC
-
-    # First round of text cleaning
-    clean_document = [token.lower().rstrip(string.punctuation).lstrip(string.punctuation) for token in clean_document 
-                      if not token.isdecimal() and not pattern1.match(token) and not all([j in string.punctuation for j in [c for c in token]]) and len(token)>1]
-    # Second round of string cleaning removing stop words
-    clean_document = [token for token in clean_document if token not in stoplist]
-        
-    model.add_doc(clean_document, labels=labels)
-# -
-
-model.burn_in = 5
-print('Starting training model:')
-for i in range(0, 100, 10):
-    model.train(10)
-    print('Iteration: {}\tLog-likelihood: {}'.format(i, model.ll_per_word))
-
-model.summary(topic_word_top_n=10)
-
-# Create list of topic names in right order
-t_names = [t[0] for t in doc_inst[0].labels]
-#[t_names.append('L' + str(lt)) for lt in range(1,model.latent_topics+1)]
-print(t_names)
-
-df_test1 = df_test.loc[df_test.Y02==1,:]
-df_test2 = df_test.loc[df_test.Y02==0,:].sample(len(df_test1))
-df_temp = df_test1.append(df_test2)
-
-# +
-# %time
-doc_inst = []
-for index, row in tqdm(df_temp.iterrows()):
-    clean_document = row.ABSTRACT.split()
-    labels = row.CPC
-
-    # First round of text cleaning
-    clean_document = [token.lower().rstrip(string.punctuation).lstrip(string.punctuation) for token in clean_document 
-                      if not token.isdecimal() and not pattern1.match(token) and not all([j in string.punctuation for j in [c for c in token]]) and len(token)>1]
-    # Second round of string cleaning removing stop words
-    clean_document = [token for token in clean_document if token not in stoplist]
-        
-    doc_inst.append(model.make_doc(clean_document))
-    
-#doc_inst = [model.make_doc(row.ABSTRACT.split()) for index, row in tqdm(df_train.iterrows())]
-topic_dist, ll = model.infer(doc_inst, iter = 100, together = True)
-# -
-
-len(topic_dist), ll
-
-df_test_pred = get_prediction_df(df_temp, topic_dist, t_names)
-
-df_test_pred.Y02_PRED_imp.plot(kind='hist', bins=100, logy=True)
-
-[print(t, classification_res(df_test_pred, target_names=['non_cleantech', 'cleantech'], threshold=t)) for t in np.arange(0.0, 1.0, 0.1)]
-
-# A balanced training and test data set worsens results further.
 
 # Labelled LDA models rather serve as way to build semantic descriptions of clean technologies. Maybe still a minor research contribution?
 
@@ -381,10 +248,19 @@ df_topic_words
 
 pd.concat([pd.DataFrame(model.get_topic_words(topic_id=ind, top_n=10000), columns=[topic+'_words', topic+'_prob']) for ind, topic in enumerate(model.topic_label_dict)], axis=1)
 
+# + active=""
+# # Save to disk
+# df_topic_words.to_csv(here(r'.\03_Model\temp\df_topic_words.txt'), sep='\t', encoding='utf-8')
+# -
+
+# Read topic-proba-df
+df_topic_words = pd.read_csv(here(r'.\03_Model\temp\df_topic_words.txt'), sep='\t', encoding='utf-8')
+
 # Get a semantic representation in vector space.
 
 df_topic_words.loc[df_topic_words.Topic=='Y02C']
 
+# %%time
 embeddings_index = {}
 with open(config.PATH_TO_GLOVE + '/glove.6B.50d.txt', encoding='utf-8') as f:
     for line in f:
@@ -408,18 +284,23 @@ for topic in model.topic_label_dict:
 for topic in model.topic_label_dict:
     print(topic, '\t' , len(semantic_vectors[topic]))
 
-# Save semantic vectors to disk
-with open(here(r'.\03_Model\temp\semantic_vectors.pkl'), 'wb') as f:
-    pkl.dump(semantic_vectors, f)
+# + active=""
+# # Save semantic vectors to disk
+# with open(here(r'.\03_Model\temp\semantic_vectors.pkl'), 'wb') as f:
+#     pkl.dump(semantic_vectors, f)
+# -
+
+# Read semantic vectors from disk
+semantic_vectors = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors.pkl'), 'rb'))
 
 # From this picture it makes possibly sense to restrict the technology clusters in semantic vector space to the 5,000 most relevant terms.
 
 semantic_vectors5000 = {}
-for topic in model.topic_label_dict:
+for topic in list(semantic_vectors.keys()):
     vec = semantic_vectors[topic][0:5000,]
     semantic_vectors5000[topic] = vec
 
-for topic in model.topic_label_dict:
+for topic in list(semantic_vectors.keys()):
     print(topic, '\t' , len(semantic_vectors5000[topic]))
 
 
@@ -554,22 +435,37 @@ df_temp = pd.DataFrame(temp, columns=['y02', 'n_words', 'mean', 'median'])
 
 sns.lineplot(data=df_temp, x='n_words', y='median', hue='y02')
 
-# One way to reduce noise is to ignore cosine similarities of word pairs below a certain threshhold.
+# One way to reduce noise is to ignore cosine similarities of word pairs below a certain threshold or to incorporate exact matches in the similarity metric.
+
+temp1 = get_semantic_vectors('Y02C', 5)
+temp2 = sent_embedding
+similarity = cosine_similarity(temp1, temp2).flatten()
+similarity[np.argsort(-similarity)[:100]]
+(np.round_(similarity[np.argsort(-similarity)[:100]], decimals=3) == 1).sum()
+len(sent_embedding)
 
 # Work with semantic vectors of different sizes (limit the number of top words) and return mean and median cosine similarity.
 temp = []
+len_sent = len(sent_embedding)
 for topic in ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']:
     for n_words in tqdm(range(10, 5000+1, 10)):
+        # Get semantic technology descriptions in vector space given number of top words
         Y02_embedding = get_semantic_vectors(topic, n_words)
-        similarity = cosine_similarity(Y02_embedding, sent_embedding).flatten()
-        top100 = similarity[np.argsort(-similarity)[:100]]
+        
+        # Calculate cosine similarity between all permutations of technology semantic vector space and sentence vector space
+        similarity = np.round_(cosine_similarity(Y02_embedding, sent_embedding).flatten(), decimals=3)
+        
+        # Calculate number of exact word matches
+        n_exact = (similarity == 1).sum()
+        n_exact_norm = n_exact/len_sent
+        
         temp.append([topic, n_words, similarity.mean(), np.median(similarity),
                      np.quantile(similarity, q=0.9), np.quantile(similarity, q=0.99), np.quantile(similarity, q=0.999),
-                    top100.mean(), top100.sum()])
+                     n_exact, n_exact_norm, n_exact_norm+similarity.mean()])
 df_temp = pd.DataFrame(temp, columns=['y02', 'n_words', 'mean', 'median',
-                                     'q9', 'q99', 'q999', 'top100_mean', 'top100_sum'])
+                                     'q9', 'q99', 'q999', 'n_exact', 'n_exact_norm', 'n_exact_norm_mean'])
 
-df = pd.melt(df_temp, id_vars=['y02', 'n_words'], value_vars=['mean', 'median', 'q9', 'q99', 'q999', 'top100_mean', 'top100_sum'], var_name='measure', value_name='value')
+df = pd.melt(df_temp, id_vars=['y02', 'n_words'], value_vars=['mean', 'median', 'q9', 'q99', 'q999', 'n_exact', 'n_exact_norm', 'n_exact_norm_mean'], var_name='measure', value_name='value')
 
 df.head(3)
 
@@ -580,24 +476,36 @@ sns.relplot(
     col_wrap=3, facet_kws=dict(sharey=False)
 )
 
+# Exact matches of words
+list_sent = re.sub(r'\.|\,', '', sent).lower().split()
+[word for word in list_sent if word in df_topic_words.loc[df_topic_words.Topic=='Y02C'].Word[:5000].values]
+
 # How does it look like if we only take top words from one topic?
 
 # Work with semantic vectors of different sizes (limit the number of top words) and return mean and median cosine similarity.
-top_words = list(df_topic_words.loc[df_topic_words.Topic=='Y02C',].head(10).Word.values)
+top_words = ['gas', 'absorption', 'dioxide', 'carbon', 'co2']
 sent_embedding = np.array([list(embeddings_index[word]) for word in top_words])
 temp = []
+len_sent = len(sent_embedding)
 for topic in ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']:
     for n_words in tqdm(range(10, 5000+1, 10)):
+        # Get semantic technology descriptions in vector space given number of top words
         Y02_embedding = get_semantic_vectors(topic, n_words)
-        similarity = cosine_similarity(Y02_embedding, sent_embedding).flatten()
-        top100 = similarity[np.argsort(-similarity)[:100]]
+        
+        # Calculate cosine similarity between all permutations of technology semantic vector space and sentence vector space
+        similarity = np.round_(cosine_similarity(Y02_embedding, sent_embedding).flatten(), decimals=3)
+        
+        # Calculate number of exact word matches
+        n_exact = (similarity == 1).sum()
+        n_exact_norm = n_exact/len_sent
+        
         temp.append([topic, n_words, similarity.mean(), np.median(similarity),
                      np.quantile(similarity, q=0.9), np.quantile(similarity, q=0.99), np.quantile(similarity, q=0.999),
-                    top100.mean(), top100.sum()])
+                     n_exact, n_exact_norm, n_exact_norm+similarity.mean()])
 df_temp = pd.DataFrame(temp, columns=['y02', 'n_words', 'mean', 'median',
-                                     'q9', 'q99', 'q999', 'top100_mean', 'top100_sum'])
+                                     'q9', 'q99', 'q999', 'n_exact', 'n_exact_norm', 'n_exact_norm_mean'])
 
-df = pd.melt(df_temp, id_vars=['y02', 'n_words'], value_vars=['mean', 'median', 'q9', 'q99', 'q999', 'top100_mean', 'top100_sum'], var_name='measure', value_name='value')
+df = pd.melt(df_temp, id_vars=['y02', 'n_words'], value_vars=['mean', 'median', 'q9', 'q99', 'q999', 'n_exact', 'n_exact_norm', 'n_exact_norm_mean'], var_name='measure', value_name='value')
 
 sns.relplot(
     data=df,
@@ -606,7 +514,7 @@ sns.relplot(
     col_wrap=3, facet_kws=dict(sharey=False)
 )
 
-# Even if one takes the same words as listed in the semantic technology space, there is proximity but not extremely clear proximity. Why? Because the words within the semantic technology space have in part a great dissimilarity based on the pre-trained word vectors.
+# Even if one takes the same words as listed in the semantic technology space, there is proximity but not extremely clear proximity. Why? Because the words within the semantic technology space have in part a great dissimilarity based on the pre-trained word vectors. It may be worth here to train own technology specific word vectors.
 
 # What if one takes a completely non-technical business model description?
 
@@ -616,18 +524,26 @@ cosine_similarity(semantic_vectors5000['Y02C'], sent_embedding).flatten().mean()
 
 # Work with semantic vectors of different sizes (limit the number of top words) and return mean and median cosine similarity.
 temp = []
+len_sent = len(sent_embedding)
 for topic in ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']:
     for n_words in tqdm(range(10, 5000+1, 10)):
+        # Get semantic technology descriptions in vector space given number of top words
         Y02_embedding = get_semantic_vectors(topic, n_words)
-        similarity = cosine_similarity(Y02_embedding, sent_embedding).flatten()
-        top100 = similarity[np.argsort(-similarity)[:100]]
+        
+        # Calculate cosine similarity between all permutations of technology semantic vector space and sentence vector space
+        similarity = np.round_(cosine_similarity(Y02_embedding, sent_embedding).flatten(), decimals=3)
+        
+        # Calculate number of exact word matches
+        n_exact = (similarity == 1).sum()
+        n_exact_norm = n_exact/len_sent
+        
         temp.append([topic, n_words, similarity.mean(), np.median(similarity),
                      np.quantile(similarity, q=0.9), np.quantile(similarity, q=0.99), np.quantile(similarity, q=0.999),
-                    top100.mean(), top100.sum()])
+                     n_exact, n_exact_norm, n_exact_norm+similarity.mean()])
 df_temp = pd.DataFrame(temp, columns=['y02', 'n_words', 'mean', 'median',
-                                     'q9', 'q99', 'q999', 'top100_mean', 'top100_sum'])
+                                     'q9', 'q99', 'q999', 'n_exact', 'n_exact_norm', 'n_exact_norm_mean'])
 
-df = pd.melt(df_temp, id_vars=['y02', 'n_words'], value_vars=['mean', 'median', 'q9', 'q99', 'q999', 'top100_mean', 'top100_sum'], var_name='measure', value_name='value')
+df = pd.melt(df_temp, id_vars=['y02', 'n_words'], value_vars=['mean', 'median', 'q9', 'q99', 'q999', 'n_exact', 'n_exact_norm', 'n_exact_norm_mean'], var_name='measure', value_name='value')
 
 # + tags=[]
 sns.relplot(
@@ -636,3 +552,53 @@ sns.relplot(
     hue="y02",  col="measure", kind="line",
     col_wrap=3, facet_kws=dict(sharey=False)
 )
+# -
+
+# Which words do match with semantic technology spaces?
+
+# Exact matches of words
+list_sent = re.sub(r'\.|\,', '', sent).lower().split()
+matched_words = [word for word in list_sent if word in df_topic_words.loc[df_topic_words.Topic=='Y02C'].Word.values]
+matched_words
+
+# Exact matches are only words which do not describe the semantic space of the respective technology at all (maybe except of the word mixture). This shows that semantic spaces of technologies need to be cleaned manually to a certain extent. How does proximity measure looks like if these words were not part of the semantic technology space?
+
+sent_embedding.shape
+
+sent_list=[word for word in list_sent if word not in matched_words]
+
+sent_embedding = np.array([list(embeddings_index[word]) for word in list_sent if word not in matched_words])
+
+sent_embedding.shape
+
+# Work with semantic vectors of different sizes (limit the number of top words) and return mean and median cosine similarity.
+temp = []
+len_sent = len(sent_embedding)
+for topic in ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']:
+    for n_words in tqdm(range(10, 5000+1, 10)):
+        # Get semantic technology descriptions in vector space given number of top words
+        Y02_embedding = get_semantic_vectors(topic, n_words)
+        
+        # Calculate cosine similarity between all permutations of technology semantic vector space and sentence vector space
+        similarity = np.round_(cosine_similarity(Y02_embedding, sent_embedding).flatten(), decimals=5)
+        
+        # Calculate number of exact word matches
+        n_exact = (similarity == 1).sum()
+        n_exact_norm = n_exact/len_sent
+        
+        temp.append([topic, n_words, similarity.mean(), np.median(similarity),
+                     np.quantile(similarity, q=0.9), np.quantile(similarity, q=0.99), np.quantile(similarity, q=0.999),
+                     n_exact, n_exact_norm, n_exact_norm+similarity.mean()])
+df_temp = pd.DataFrame(temp, columns=['y02', 'n_words', 'mean', 'median',
+                                     'q9', 'q99', 'q999', 'n_exact', 'n_exact_norm', 'n_exact_norm_mean'])
+
+df = pd.melt(df_temp, id_vars=['y02', 'n_words'], value_vars=['mean', 'median', 'q9', 'q99', 'q999', 'n_exact', 'n_exact_norm', 'n_exact_norm_mean'], var_name='measure', value_name='value')
+
+sns.relplot(
+    data=df,
+    x="n_words", y="value",
+    hue="y02",  col="measure", kind="line",
+    col_wrap=3, facet_kws=dict(sharey=False)
+)
+
+# If no search terms match exactly, then the proximity measure n_exact_norm+similarity.mean() converge towards the mean cosine similarity across all permutations. Proximity above mean could thus be a filter for considering a text as technology related.
