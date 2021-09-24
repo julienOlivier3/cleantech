@@ -51,7 +51,7 @@ df
 
 # +
 # Train-dev-test split
-df_train = df.sample(frac=0.8)
+df_train = df.sample(frac=0.8, random_state=333)
 df_test = df.loc[~df.APPLN_ID.isin(df_train.APPLN_ID),:]
 
 X_train = df_train.sample(1000).ABSTRACT.values
@@ -115,7 +115,7 @@ classifier(
 
 # The problem of transformer models is that they are made for shorter sequences of text. Later on in the project the classifier is supposed to be applied on longer texts from corporate websites. For this purpose a more traditional text classification with heuristics from information retrieval (e.g. tf-idf) will be more suitable. 
 
-# + [markdown] tags=[] heading_collapsed="true"
+# + [markdown] tags=[]
 # # Tf-idf text classification model
 # -
 
