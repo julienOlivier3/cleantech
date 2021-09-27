@@ -26,7 +26,9 @@ from sklearn.metrics import classification_report
 from sklearn.metrics.pairwise import cosine_similarity
 import seaborn as sns
 
+# + [markdown] heading_collapsed="true" tags=[]
 # # Data preparation 
+# -
 
 # Encoding issue here!
 df = pd.read_pickle(here(r'.\01_Data\01_Patents\epo2vvc_patents.pkl'))
@@ -80,7 +82,9 @@ with open(config.PATH_TO_GLOVE + '/glove.6B.50d.txt', encoding='utf-8') as f:
 print("Found %s word vectors." % len(embeddings_index))
 
 
+# + [markdown] heading_collapsed="true" tags=[]
 # # Functions 
+# -
 
 def word_list_to_embedding_array(word_list):
     # Extract word embedding if exist, else return None
@@ -96,7 +100,12 @@ def get_semantic_vectors(technology, n_words):
     return(semantic_vectors[technology][0:n_words,])
 
 
+# + [markdown] tags=[]
 # # Testing on hold out patent abstracts 
+
+# + [markdown] tags=[] heading_collapsed="true"
+# ## Calculate technological proximity 
+# -
 
 df_test
 
@@ -125,6 +134,7 @@ for index, row in tqdm(df_test.iterrows(), total=df_test.shape[0], position=0, l
     clean_document = row.ABSTRACT.split()
     label = row.Y02
     importance = row.Y02_imp
+    ind = row.APPLN_ID
 
     # First round of text cleaning
     clean_document = [token.lower().rstrip(string.punctuation).lstrip(string.punctuation) for token in clean_document 
@@ -149,8 +159,85 @@ for index, row in tqdm(df_test.iterrows(), total=df_test.shape[0], position=0, l
             n_exact = (similarity == 1).sum()
             n_exact_norm = n_exact/len_patent_embedding
         
-            temp.append([index, label, y02, importance, n_words, similarity_mean, n_exact, n_exact_norm, n_exact_norm+similarity_mean])
+            temp.append([ind, label, y02, importance, n_words, similarity_mean, n_exact, n_exact_norm, n_exact_norm+similarity_mean])
     #if index==5:
     #    break
             
 df_temp = pd.DataFrame(temp, columns=['ID', 'LABEL', 'Y02', 'Y02_IMPORTANCE', 'N_WORDS', 'MEAN', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN'])
+# -
+
+df_temp
+
+# + active=""
+# # Save to disk
+# df_temp.to_csv(here(r'.\03_Model\temp\df_validation_patents.txt'), sep='\t', encoding='utf-8')
+
+# + [markdown] tags=[]
+# ## Some visualizations 
+# -
+
+# Load testing file
+df_test_results = pd.read_csv(here(r'.\03_Model\temp\df_validation_patents.txt'), sep='\t', encoding='utf-8', index_col='Unnamed: 0')
+
+df_test_results.head(3)
+
+df_test = pd.melt(df_test_results, id_vars=['LABEL', 'N_WORDS', ], value_vars=['MEAN', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN'], var_name='measure', value_name='value')
+
+df_test
+
+sns.catplot(
+    data=df_test,
+    x="N_WORDS", y="value",
+    hue="LABEL",  col="measure", kind="box",
+    col_wrap=1, sharey=False, sharex=True, height=8, aspect=2
+)
+
+# It appears that all proximity measures allow a differentiation between cleantech and non-cleantech patents (with the last one = sum over fraction of exact matches and mean cosine similarity between semantic vector spaces showing this differentiation best.) Nonetheless differentiation could be better. Ideas for improvement clearly exist:
+# - training own technology-related word embeddings
+# - lemmatization before generating the the semantic vector spaces for the different technology classes
+# In any case: The test data can also be used as validation set in order to determine the "best" number of words to define the semantic technology space.
+#
+# Note: At this point it is no real test set. Let's how the above plots look like on a real hold-out test set.
+
+# Add Y02_dict to test data
+df_test = df_test_results.merge(df[['APPLN_ID', 'Y02_dict']], how='left', left_on='APPLN_ID', right_on='APPLN_ID')
+
+df_test['Y02_true'] = df_test.Y02_dict.apply(lambda x: list(x.keys()))
+
+# Analyze how proximity differs compared to non-cleantech patents.
+
+# +
+fig, axes = plt.subplots(figsize=(15,50), ncols=1, nrows=8)
+
+for y02, ax in zip(['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W'], axes.flat):
+    df_y02 = df_test.loc[df_test.Y02_true.apply(lambda x: y02 in x) & (df_test.Y02 == y02)]
+    df_nony02 = df_test.loc[(df_test.LABEL == 0) & (df_test.Y02 == y02)]
+    df_temp = pd.concat([df_y02, df_nony02])
+    #df_temp = pd.melt(df_temp, id_vars=['LABEL', 'N_WORDS', ], value_vars=['MEAN', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN'], var_name='measure', value_name='value')
+    ax = sns.boxplot(x="N_WORDS", y="N_EXACT_NORM_MEAN", hue="LABEL",
+                 data=df_temp, linewidth=1, ax=ax)
+    ax.set_title(y02 + ' (based on ' + str(len(df_y02['APPLN_ID'].drop_duplicates())) + ' distinct Y02 patents and 5000 non-Y02 patents)')
+plt.show()
+# -
+
+# Analyze how proximity differs compared to cleantech patents from other Y02 classes.
+
+fig, axes = plt.subplots(figsize=(15,50), ncols=1, nrows=8)
+y02s = ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']
+for y02, ax in zip(y02s, axes.flat):
+    df_y02 = df_test.loc[df_test.Y02_true.apply(lambda x: y02 in x) & (df_test.Y02 == y02)].copy()
+    df_y02['LABEL'] = y02
+    df_othery02 = df_test.loc[df_test.Y02_true.apply(lambda x: (y02 not in x) & (len(x)>0)) & (df_test.Y02 == y02)].copy()
+    df_othery02['LABEL'] = 'other cleantech'
+    df_temp = pd.concat([df_y02, df_othery02])
+    #df_temp = pd.melt(df_temp, id_vars=['LABEL', 'N_WORDS', ], value_vars=['MEAN', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN'], var_name='measure', value_name='value')
+    ax = sns.boxplot(x="N_WORDS", y="N_EXACT_NORM_MEAN", hue="LABEL",
+                 data=df_temp, linewidth=1, ax=ax)
+    ax.set_title(y02 + ' (based on ' + str(len(df_y02['APPLN_ID'].drop_duplicates())) + ' distinct ' + y02 + ' patents and ' + str(len(df_othery02['APPLN_ID'].drop_duplicates())) + ' other Y02 patents)')
+plt.show()
+
+# Results look good.
+
+# # Testing on corporate websites 
+
+
