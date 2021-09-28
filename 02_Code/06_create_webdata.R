@@ -35,10 +35,54 @@ scrape_tab <- function(url){
     
 }
 
+base_table <- scrape_tab(url)
+
 # Scrape website and further info
-html <- read_html("https://i3connect.com/company/75f")
+html <- read_html("https://i3connect.com//company/agriprotein")
+
+text <- html %>% html_text2()
+
+start <- str_locate_all(string = text, pattern = regex('\"company\":'))[[1]][1]
+end <- str_locate_all(string = text, pattern = regex(',\"follow\":'))[[1]][1]
+company_text <- substr(text, start, end-1)
+
+clean_pattern <- function(string){
+  return(gsub(pattern = '"|:', '', string))
+}
+
+clean_entry <- function(string){
+  return(gsub(pattern = '\"', '', string))
+}
+
+extract_entries <- function(string, pattern_vector){
+  entry_list <- list()
+  n_patterns <- length(pattern_vector)
+  for (i in 1:(n_patterns-1)){
+    pattern <- pattern_vector[i]
+    start <- str_locate_all(string, pattern = regex(pattern))[[1]][2]
+    end <- str_locate_all(string, pattern = regex(pattern_vector[i+1]))[[1]][1]
+    entry <- substr(string, start+1, end-3)
+    entry_list[[clean_pattern(pattern)]] <- clean_entry(entry)
+  }
+  
+  return(entry_list)
+}
+
+pattern_vector <- c(
+  '\"id\":',
+  '\"name\":',
+  '\"url\":',
+  '\"logo_id\":',
+  '\"short_description\":',
+  '\"website\":',
+  '\"year_founded\":'
+  
+)
+
+extract_entries(company_text, pattern_vector)
+
 firm_info <- html %>% 
-  html_element(xpath = "//div[@class='cp-profile-details']")
+  html_elements(xpath = "//div[@class='cp-profile-details']")
 
 class_names <- c("short-description", "company-type", "sector", "stage", "address ", "parent-company", "website")  
 
@@ -58,10 +102,6 @@ html %>%
 base_table <- scrape_tab(url)
 
 scrape_firm_info <- function(url){
-  "//input[@id='edit-street-address']"
-  //*[@id="left-tile"]/form/div[2]/div[2]/div
-  #left-tile > form > div.tile-content.overview-content > div.cp-profile-right > div
-  /html/body/div[1]/div[2]/div/div/div[20]/div[1]/form/div[2]/div[2]/div
-  //*[@id="left-tile"]/form/div[2]/div[2]
+
 }
 
