@@ -6,9 +6,9 @@
 #       extension: .py
 #       format_name: light
 #       format_version: '1.5'
-#       jupytext_version: 1.10.2
+#       jupytext_version: 1.12.0
 #   kernelspec:
-#     display_name: Python 3
+#     display_name: Python 3 (ipykernel)
 #     language: python
 #     name: python3
 # ---
@@ -26,7 +26,38 @@ from sklearn.metrics import classification_report
 from sklearn.metrics.pairwise import cosine_similarity
 import seaborn as sns
 
-# + [markdown] heading_collapsed="true" tags=[]
+# + [markdown] heading_collapsed="true" tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[]
+# # Functions 
+# -
+
+# Read semantic vectors from disk
+semantic_vectors = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors.pkl'), 'rb'))
+
+# Read word embeddings
+embeddings_index = {}
+with open(config.PATH_TO_GLOVE + '/glove.6B.50d.txt', encoding='utf-8') as f:
+    for line in f:
+        word, coefs = line.split(maxsplit=1)
+        coefs = np.fromstring(coefs, "f", sep=" ")
+        embeddings_index[word] = coefs
+print("Found %s word vectors." % len(embeddings_index))
+
+
+def word_list_to_embedding_array(word_list):
+    # Extract word embedding if exist, else return None
+    embedding_list = [list(embeddings_index.get(word, [])) for word in word_list]
+    # Drop None from resulting list
+    embedding_list = list(filter(None, embedding_list))
+    # Create numpy array
+    embeddings = np.array(embedding_list)
+    return(embeddings)
+
+
+def get_semantic_vectors(technology, n_words):
+    return(semantic_vectors[technology][0:n_words,])
+
+
+# + [markdown] heading_collapsed="true" tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[]
 # # Data preparation 
 # -
 
@@ -81,26 +112,7 @@ with open(config.PATH_TO_GLOVE + '/glove.6B.50d.txt', encoding='utf-8') as f:
         embeddings_index[word] = coefs
 print("Found %s word vectors." % len(embeddings_index))
 
-
-# + [markdown] heading_collapsed="true" tags=[]
-# # Functions 
-# -
-
-def word_list_to_embedding_array(word_list):
-    # Extract word embedding if exist, else return None
-    embedding_list = [list(embeddings_index.get(word, [])) for word in word_list]
-    # Drop None from resulting list
-    embedding_list = list(filter(None, embedding_list))
-    # Create numpy array
-    embeddings = np.array(embedding_list)
-    return(embeddings)
-
-
-def get_semantic_vectors(technology, n_words):
-    return(semantic_vectors[technology][0:n_words,])
-
-
-# + [markdown] tags=[]
+# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[]
 # # Testing on hold out patent abstracts 
 
 # + [markdown] tags=[] heading_collapsed="true"
@@ -238,6 +250,112 @@ plt.show()
 
 # Results look good.
 
+# + [markdown] tags=[]
 # # Testing on corporate websites 
+# -
+
+import util
+import config
+import pandas as pd
+import numpy as np
+import re
+from pyprojroot import here
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pickle as pkl
+from tqdm import tqdm
+from sklearn.metrics.pairwise import cosine_similarity
 
 
+# Function which joins list of strings to one joint string while treating missing values consistently
+def create_joint_string(x, columns = ['SHORT_DESCRIPTION', 'LONG_DESCRIPTION', 'PRODUCTS_DESCRIPTION', 'OVERVIEW']):
+    return(' '.join([i for i in list(x[columns].values) if not pd.isnull(i)]))    
+
+
+# +
+# Read test data of cleantech and nasdaq firms
+df_cleantech = pd.read_csv(here('01_Data/02_Firms/df_cleantech_firms.txt'), sep='\t', encoding='utf-8')
+df_cleantech['DESCRIPTION'] = df_cleantech.apply(lambda x: create_joint_string(x), axis=1)
+df_cleantech = df_cleantech[['NAME', 'DESCRIPTION']]
+df_cleantech['LABEL'] = 'cleantech'
+
+df_nasdaq = pd.read_csv(here('01_Data/02_Firms/df_nasdaq_firms.txt'), sep='\t', encoding='utf-8')
+df_nasdaq = df_nasdaq[df_nasdaq.BUSINESS_SUMMARY.notnull()]
+df_nasdaq = df_nasdaq[['NAME', 'BUSINESS_SUMMARY']].rename(columns={'BUSINESS_SUMMARY': 'DESCRIPTION'})
+df_nasdaq['LABEL'] = 'nasdaq'
+
+# Combine both firm samples in one df
+df = pd.concat([df_cleantech, df_nasdaq]).reset_index(drop=True)
+
+# Calculate character length of company descriptions
+df['LEN'] = df.DESCRIPTION.apply(len)
+
+df.reset_index(drop=True, inplace=True)
+# -
+
+# Analyze length of company descriptions between cleantech and NASDAQ firms.
+
+sns.histplot(data=df, x="LEN", hue="LABEL", bins=30)
+
+# Careful: texts are not equally distributed!
+
+# Conduct lemmatization
+df['LEMMA'] = df.DESCRIPTION.apply(lambda x: [lemma.lower() for lemma in string_to_lemma(x)])
+
+df.head(3)
+
+# +
+temp = []
+for index, row in tqdm(df.iterrows(), total=df.shape[0], position=0, leave=True):
+#for index in tqdm(range(df_test.shape[0]), position=0, leave=True):
+    #row = df_test.iloc[index]
+    clean_document = row.LEMMA
+    label = row.LABEL
+    ind = row.NAME
+        
+    # Create word embedding matrix
+    patent_embedding = word_list_to_embedding_array(clean_document)
+    len_patent_embedding = len(patent_embedding)
+    
+    # Calculate proximity to all clean technology semantic spaces
+    for y02 in ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']:
+        for n_words in [10, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000]:
+            technology_embedding = get_semantic_vectors(y02, n_words)
+            
+            # Calculate cosine similarity between all permutations of patent vector space and technology semantic vector space
+            similarity = np.round_(cosine_similarity(patent_embedding, technology_embedding).flatten(), decimals=5)
+            similarity_mean = similarity.mean()
+        
+            # Calculate number of exact word matches
+            n_exact = (similarity == 1).sum()
+            n_exact_norm = n_exact/len_patent_embedding
+        
+            temp.append([ind, label, y02, n_words, similarity_mean, n_exact, n_exact_norm, n_exact_norm+similarity_mean])
+    #if index==5:
+    #    break
+            
+df_test_results = pd.DataFrame(temp, columns=['ID', 'LABEL', 'Y02', 'N_WORDS', 'MEAN', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN'])
+# -
+
+df_test = pd.melt(df_test_results, id_vars=['LABEL', 'N_WORDS', ], value_vars=['MEAN', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN'], var_name='measure', value_name='value')
+
+sns.catplot(
+    data=df_test,
+    x="N_WORDS", y="value",
+    hue="LABEL",  col="measure", kind="box",
+    col_wrap=1, sharey=False, sharex=True, height=6, aspect=2
+)
+
+# Discrimination between company descriptions looks promising, too!
+
+df_test_results.head(3)
+
+# +
+fig, axes = plt.subplots(figsize=(15,50), ncols=1, nrows=8)
+
+for y02, ax in zip(['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W'], axes.flat):
+    df_temp = df_test_results.loc[df_test_results.Y02 == y02]
+    ax = sns.boxplot(x="N_WORDS", y="N_EXACT_NORM_MEAN", hue="LABEL",
+                 data=df_temp, linewidth=1, ax=ax)
+    ax.set_title(y02)
+plt.show()

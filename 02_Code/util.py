@@ -71,3 +71,62 @@ def View(df):
     s += 'win.document.body.innerHTML = \'' + (df.to_html() + css).replace("\n",'\\') + '\';'
     s += '</script>'
     return(HTML(s+css))
+
+
+# Lemmatization
+import spacy
+import re
+
+# Initialize spacy 'en' model
+nlp = spacy.load("en_core_web_sm")
+
+#Default tokenizer seperates hyphen words in three tokens e.g.:
+#- photo-sensor -> ['photo', '-', 'sensor']
+#- aluminum-silicon -> ['aluminium', '-', 'silicon']
+
+#In the context of developing semantic spaces for different technologies this is undesirable as hyphen words possibly carry high value in terms of describing the #underlying technology.
+
+#Thus, the default tokenizer will be customized to convert hyphen words into a single token following the suggestion found [here](https://stackoverflow.com/questions/51012476/spacy-custom-tokenizer-to-include-only-hyphen-words-as-tokens-using-infix-regex), i.e.:
+#- photo-sensor -> ['photo-sensor']
+from spacy.tokenizer import Tokenizer
+from spacy.util import compile_prefix_regex, compile_infix_regex, compile_suffix_regex
+
+def custom_tokenizer(nlp):
+    infix_re = re.compile(r'''[.\,\?\:\;\...\‘\’\`\“\”\"\'~]''')
+    prefix_re = compile_prefix_regex(nlp.Defaults.prefixes)
+    suffix_re = compile_suffix_regex(nlp.Defaults.suffixes)
+
+    return Tokenizer(nlp.vocab, prefix_search=prefix_re.search,
+                                suffix_search=suffix_re.search,
+                                infix_finditer=infix_re.finditer,
+                                token_match=None)
+nlp.tokenizer = custom_tokenizer(nlp)
+
+def string_to_lemma(doc, exclude_pos = ['PUNCT', 'NUM', 'X'], exclude_stopwords = True):
+    """Function which returns a list of lemmatized words.
+    
+    Input: string representing a the textual content of a document.
+    
+    Arguments:
+        - exclude_pos: list of part-of-speech abbreviations which will be excluded in the output. 
+            See https://universaldependencies.org/docs/u/pos/ for an overview of pos tags
+        - exclude_stopwords: specify whether stop words will be excluded in the output
+        
+    Output: list of strings representing the word lemmas from the input.
+    
+    """
+    
+    # Calling the nlp object on a string of text will return a processed Doc
+    doc = nlp(doc)
+    
+    if exclude_pos:
+        if exclude_stopwords:
+            return([token.lemma_ for token in doc if token.pos_ not in exclude_pos if not token.is_stop])
+        else:
+            return([token.lemma_ for token in doc if token.pos_ not in exclude_pos])
+        
+    else:
+        if exclude_stopwords:
+            return([token.lemma_ for token in doc if not token.is_stop])
+        else:
+            return([token.lemma_ for token in doc])

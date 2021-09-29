@@ -6,6 +6,7 @@
 *.ipynb
 02_Code/config.py
 02_Code/__pycache__
+02_Code/01_Old
 01_Data
 03_Model
 .virtual_documents/
