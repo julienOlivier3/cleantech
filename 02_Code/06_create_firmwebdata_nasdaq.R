@@ -73,8 +73,8 @@ scrape_firminfo <- function(url, pattern_vector){
   start <- str_locate_all(string = text, pattern = regex('\"companyData\":'))[[1]][1]
   end <- str_locate_all(string = text, pattern = regex('\\[\\{\"Designation\":'))[[1]][1]
   company_text <- substr(text, start, end-1)
-  
   entry_row <- extract_entries(company_text, pattern_vector) %>% as_tibble()
+
   
   return(entry_row)
 }
@@ -94,7 +94,7 @@ cached_scrape_firminfo <- memoise(scrape_firminfo, cache = cache_filesystem(cach
 # First, scrape the base table 
 data <- fromJSON(paste(readLines(here('01_Data/02_Firms/nasdaq.json')), collapse=""))
 
-base_table <- scrape_tab(data)
+base_table <- parse_tab(data)
 
 # Second, given the HREF in the base table scrape the detailed firm information
 
@@ -108,18 +108,20 @@ pattern_vector <- c(
 
 
 
-df_nasdaq <- pblapply(base_table$HREF[1:3], function(url) cached_scrape_firminfo(url, pattern_vector)) %>% bind_rows()
+df_nasdaq <- pblapply(base_table$HREF, function(url){
+  tryCatch(cached_scrape_firminfo(url, pattern_vector) %>% bind_cols("HREF" = url), error=function(e) NULL)
+}) %>% bind_rows()
+
+
 
 # Clean data
-df_cleantech <- df_cleantech %>% 
-  na_if('null') %>% 
-  na_if("") %>% 
-  na_if("N/A") %>% 
-  mutate(primary_tag = str_replace(primary_tag, pattern = "\\\\u0026", replacement = "&"),
-         industry_group = str_replace(industry_group, pattern = "\\\\u0026", replacement = "&")) %>% 
+df_nasdaq <- df_nasdaq %>% 
+  mutate(websiteLink = str_replace_all(websiteLink, pattern = "\\\\u002F", replacement = "/")) %>% 
   clean_names("all_caps") %>% 
-  type_convert()
+  left_join(base_table, by = "HREF") %>% 
+  type_convert() %>% 
+  select(NAME, WEBSITE_LINK, BUSINESS_SUMMARY, everything())
 
 # Save to file
-df_cleantech %>% 
-  write_delim(here("01_Data/02_Firms/df_cleantech_firms.txt"), delim = '\t')
+df_nasdaq %>% 
+  write_delim(here("01_Data/02_Firms/df_nasdaq_firms.txt"), delim = '\t')
