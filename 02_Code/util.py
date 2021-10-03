@@ -1,5 +1,6 @@
 # Translation
 import deep_translator
+import time
 from deep_translator import GoogleTranslator
 
 # Define decorator for error handler in Google translator

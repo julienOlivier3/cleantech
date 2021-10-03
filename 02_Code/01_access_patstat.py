@@ -6,9 +6,9 @@
 #       extension: .py
 #       format_name: light
 #       format_version: '1.5'
-#       jupytext_version: 1.10.2
+#       jupytext_version: 1.12.0
 #   kernelspec:
-#     display_name: Python 3
+#     display_name: Python 3 (ipykernel)
 #     language: python
 #     name: python3
 # ---
@@ -23,18 +23,22 @@ import numpy as np
 from sqlalchemy import types, create_engine
 import cx_Oracle
 from pyprojroot import here
+from tqdm import tqdm
+import pickle as pkl
 
+# + [markdown] tags=[]
 # ## Extract Data 
+# -
 
 # The following functions connect to the PATSTAT database.
 
 cx_Oracle.init_oracle_client(lib_dir=config.PATH_TO_ORACLE_CLIENT) # path to Oracle instantclient (if not in PATH)
-patstat_connection_string = 'oracle+cx_oracle://' + config.PATSTAT_USER + ':' + config.PATSTAT_PASSWORD + '@ora4.zew-private.de:1521/test' # [DB_FLAVOR]+[DB_PYTHON_LIBRARY]://[USERNAME]:[PASSWORD]@[DB_HOST]:[PORT]/[DB_NAME] - adjust as needed
+patstat_connection_string = 'oracle+cx_oracle://' + config.PATSTAT_USER_COMMON + ':' + config.PATSTAT_PASSWORD_COMMON + '@ora4.zew-private.de:1521/test' # [DB_FLAVOR]+[DB_PYTHON_LIBRARY]://[USERNAME]:[PASSWORD]@[DB_HOST]:[PORT]/[DB_NAME] - adjust as needed
 engine = create_engine(patstat_connection_string) # engine leads to PATSTAT
 
 # Check whether connection has been successfully established.
 
-len(engine.table_names()[0:3]) == 3
+pd.read_sql("SELECT * FROM all_synonyms WHERE table_owner = 'PAT2'", engine).head(3)
 
 # In the following aplication we analyze PATSTAT patent applications from companies found in the Mannheim Enterprise Panel (MUP).
 
@@ -78,7 +82,7 @@ df_cpcs.iloc[:,[0,2]].to_csv(here("./01_Data/01_Patents/epo2vvc_cpc_classes.txt"
 
 # %%time
 # Create df with patent applications of MUP firms and the respective abstracts
-df_abs = pd.read_sql('select * from epo2vvc t1 left join A20203_APPLN_ABSTR t2 on t1.appln_id=t2.appln_id', engine)
+df_abs = pd.read_sql('SELECT * FROM epo2vvc t1 LEFT JOIN A20203_APPLN_ABSTR t2 ON t1.appln_id=t2.appln_id', engine)
 
 # Capitalize column names
 df_abs.columns = [x.upper() for x in df_abs.columns]
@@ -112,30 +116,73 @@ for i in tqdm(range(0, len(df_abs))):
 # Create temporary df
 df_temp = pd.DataFrame(temp, columns=['APPLN_ID', 'ABSTRACT'])
 
+df_abs = df_abs.rename(columns = {'APPLN_ABSTRACT_LG': 'ABSTRACT_LANG', 'LEN_ABSTRACT': 'ABSTRACT_LEN'})
+
 # Merge temporary df back to main df - now with with patent abstracts only in one column
 df_abs = df_abs.merge(df_temp, on = 'APPLN_ID')
-df_abs = df_abs[['APPLN_ID', 'ABSTRACT', 'APPLN_ABSTRACT_LG', 'LEN_ABSTRACT']]
-
-df_abs = df_abs.rename(columns = {'APPLN_ABSTRACT_LG': 'ABSTRACT_LANG', 'LEN_ABSTRACT': 'ABSTRACT_LEN'})
+df_abs = df_abs[['APPLN_ID', 'ABSTRACT', 'ABSTRACT_LANG', 'ABSTRACT_LEN']]
 
 # Some abstract texts are not in English. Translate patent abstracts in any other language into English.
 
 df_abs.ABSTRACT_LANG.value_counts(dropna=False)
 
-df_temp = df_abs.loc[(df_abs.ABSTRACT_LANG!='en') & (df_abs.ABSTRACT_LANG.notnull()),:].set_index('APPLN_ID', drop=True)
-
 # Number of non-English abstracts
 df_temp.shape
 
-# Load function translation_handler() which relies on module deep_translator in order to translate abtsracts
+df_temp = df_abs.loc[(df_abs.ABSTRACT_LANG!='en') & (df_abs.ABSTRACT_LANG.notnull()),:].set_index('APPLN_ID', drop=True)
+
+df_temp.head(3)
+
+
+# The problem with the non-English abstracts is that their encoding (umlaute, accents, etc.) is erroneous. So, first we need to get the encoding right.
+
+# Function to correct encoding
+def clean_encoding(x):
+    try:
+        return(x.encode("windows-1252").decode("utf-8"))
+    except:
+        return(x)
+
+
+# Correct encoding
+df_temp['ABSTRACT'] = df_temp.ABSTRACT.apply(lambda x: clean_encoding(x))
+
+df_temp.head(3)
+
+# Load function translation_handler() which relies on module deep_translator in order to translate abstracts
 from util import translation_handler
 
-# + jupyter={"outputs_hidden": true} tags=[]
-# Conduct translation
-temp = list()
-for i in tqdm(range(0, len(df_temp))):
-     temp.append((df_temp.index[i], translation_handler(df_temp.iloc[i]['ABSTRACT'])))
-# -
+
+def patent_translation(df_temp):
+    temp = list()
+    for i in range(len(df_temp)):
+        temp.append((df_temp.index[i], translation_handler(df_temp.iloc[i]['ABSTRACT'])))
+    return(temp)
+
+
+n = len(df_temp)
+chunk_size = 100
+for start in tqdm(range(0, n, chunk_size)):
+    df_subset = df_temp.iloc[start:(start+chunk_size)]
+    patent_translations = patent_translation(df_subset)
+    with open(here('02_Code/.pycache/patent_translations.pkl'), 'ab+') as f:
+        f.write(pkl.dumps(patent_translations))
+
+
+def read_cache(cache_path):
+    data = []
+    with open(cache_path, 'rb') as f:
+        try:
+            while True:
+                data.extend(pkl.load(f))
+        except EOFError:
+            pass
+    return(data)
+
+
+temp = read_cache(here('02_Code/.pycache/patent_translations.pkl'))
+
+len(temp)
 
 # Create temporary df
 df_temp = pd.DataFrame(temp, columns=['APPLN_ID', 'ABSTRACT'])
@@ -259,12 +306,35 @@ df_pat.shape
 
 df_pat.dtypes
 
+# Adjust dtype of ID variable in df_pat
 df_pat['APPLN_ID'] = df_pat.APPLN_ID.astype(str)
 
-df_abs['APPLN_ID'] = df_abs.APPLN_ID.astype(int)
+df_pat.dtypes
+
+# Merge abstracts to df_pat
 df_pat = df_pat.merge(df_abs, on='APPLN_ID', how='left')
 
 df_pat.shape
+
+df_pat.head(3)
+
+# Conduct lemmatization and stopword deletion of the patent abstracts. This step can be useful for the later model development.
+
+# Load lemmatizer form util.py and make pandas apply() function showing a progress bar
+from util import string_to_lemma
+tqdm.pandas()
+
+n1 = len(df_pat.drop_duplicates('APPLN_ID'))
+n2 = df_pat.ABSTRACT.isnull().sum()
+n2, round((n2)/n1, 5)
+
+# For 1206 patents, i.e. less than 0.25% no abstract text exists. This is negligible.
+
+df_pat = df_pat.loc[df_pat.ABSTRACT.notnull()]
+
+df_pat.shape
+
+df_pat['LEMMAS'] = df_pat.ABSTRACT.progress_apply(lambda x: string_to_lemma(x))
 
 df_pat.to_pickle(here(r".\01_Data\01_Patents\epo2vvc_patents.pkl"))
 

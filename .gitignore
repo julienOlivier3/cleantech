@@ -11,4 +11,5 @@
 03_Model
 .virtual_documents/
 .rcache
+.pycache
 
