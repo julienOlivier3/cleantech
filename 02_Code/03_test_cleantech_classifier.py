@@ -6,9 +6,9 @@
 #       extension: .py
 #       format_name: light
 #       format_version: '1.5'
-#       jupytext_version: 1.10.2
+#       jupytext_version: 1.12.0
 #   kernelspec:
-#     display_name: Python 3
+#     display_name: Python 3 (ipykernel)
 #     language: python
 #     name: python3
 # ---
@@ -27,75 +27,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 import seaborn as sns
 
 # + [markdown] heading_collapsed="true" tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[]
-# # Functions 
+# # Functions & Data
 # -
-
-# Read semantic vectors from disk
-semantic_vectors = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors.pkl'), 'rb'))
-
-# Read word embeddings
-embeddings_index = {}
-with open(config.PATH_TO_GLOVE + '/glove.6B.50d.txt', encoding='utf-8') as f:
-    for line in f:
-        word, coefs = line.split(maxsplit=1)
-        coefs = np.fromstring(coefs, "f", sep=" ")
-        embeddings_index[word] = coefs
-print("Found %s word vectors." % len(embeddings_index))
-
-
-def word_list_to_embedding_array(word_list):
-    # Extract word embedding if exist, else return None
-    embedding_list = [list(embeddings_index.get(word, [])) for word in word_list]
-    # Drop None from resulting list
-    embedding_list = list(filter(None, embedding_list))
-    # Create numpy array
-    embeddings = np.array(embedding_list)
-    return(embeddings)
-
-
-def get_semantic_vectors(technology, n_words):
-    return(semantic_vectors[technology][0:n_words,])
-
-
-# + [markdown] heading_collapsed="true" tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[]
-# # Data preparation 
-# -
-
-# Encoding issue here!
-df = pd.read_pickle(here(r'.\01_Data\01_Patents\epo2vvc_patents.pkl'))
-
-df.shape
-
-# There are some non-English texts (should not be there as they were translated in 01_access_patstat.py) <- rerun. For now drop these.
-df = df.loc[df.ABSTRACT_LANG=='en',:]
-
-# Drop patents with missing entries
-df = df.loc[df.ABSTRACT.notnull(),:]
-
-# Drop patents with very short (uninformative) patent abstracts
-df = df.loc[df.ABSTRACT.apply(len)>30,:]
-
-# Add label in string format
-df['Y02_string'] = df.Y02.map({0: ['non_cleantech'], 1: ['cleantech']})
-
-df.Y02.value_counts()
-
-# There more than 400,000 non-cleantech patents and more than 35,000 cleantech patents. Use these as training data for text classification model.
-
-df
-
-# +
-# Train-dev-test split
-df_train = df.sample(frac=0.8, random_state=333)
-df_test = df.loc[~df.APPLN_ID.isin(df_train.APPLN_ID),:]
-
-X_train = df_train.sample(1000).ABSTRACT.values
-X_test = df_test.sample(1000).ABSTRACT.values
-y_train = df_train.sample(1000).Y02.values
-y_test = df_test.sample(1000).Y02.values
-# -
-
-# Load semantic technology spaces
 
 # Read topic-proba-df
 df_topic_words = pd.read_csv(here(r'.\03_Model\temp\df_topic_words.txt'), sep='\t', encoding='utf-8')
@@ -112,47 +45,78 @@ with open(config.PATH_TO_GLOVE + '/glove.6B.50d.txt', encoding='utf-8') as f:
         embeddings_index[word] = coefs
 print("Found %s word vectors." % len(embeddings_index))
 
+
+# Function that translates a list of words into a numpy array of word embeddings
+def word_list_to_embedding_array(word_list):
+    # Extract word embedding if exist, else return None
+    embedding_list = [list(embeddings_index.get(word, [])) for word in word_list]
+    # Drop None from resulting list
+    embedding_list = list(filter(None, embedding_list))
+    # Create numpy array
+    embeddings = np.array(embedding_list)
+    return(embeddings)
+
+
+# Function that returns the semantic vector space of a technology with n_words determining the desired size of the semantic vector space
+def get_semantic_vectors(technology, n_words):
+    return(semantic_vectors[technology][0:n_words,])
+
+
+df_test = pd.read_pickle(here(r'.\03_Model\temp\df_test.pkl'))
+
 # + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[]
 # # Testing on hold out patent abstracts 
 
-# + [markdown] tags=[] heading_collapsed="true"
+# + [markdown] tags=[]
 # ## Calculate technological proximity 
 # -
 
-df_test
+df_test.head(3)
 
+# Number of cleantech and non-cleantech patents
 df_test.Y02.value_counts(dropna=False)
+
+# Count number of patents in different Y02 classes
+y02_count = {}
+for y02 in ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']:
+    y02_count[y02] = df_test.CPC.apply(lambda x: y02 in x).sum()
+y02_count
 
 # Start testing here:
 
-df_test = pd.concat([df_test.loc[df_test.Y02==1].head(5000), df_test.loc[df_test.Y02==0].head(5000)], axis=0)
+df_test.loc[df_test.Y02==1].shape[0]
 
+# Reduce test set so cleantech and non-cleantech patents are balanced
+df_cleantech = df_test.loc[df_test.Y02==1]
+df_non_cleantech = df_test.loc[df_test.Y02==0]
+df_test = pd.concat([df_cleantech, df_non_cleantech.sample(df_cleantech.shape[0], random_state=333)], axis=0)
+
+# Reset index
 df_test.reset_index(drop=True, inplace=True)
 
+# Number of patents in test set
 len(df_test)
 
-stoplist = ['for', 'a', 'of', 'the', 'and', 'to', 'in', 'at', 'an', 'on', 'this', 'is', 'are', 'it', 'the', 'and/or', 'i', 'wt', 'or', 'from', 'first', 'least']
-
-# Drop tokens of form: '(345)'
-pattern1 = re.compile("^\(\d{1,}\)$")
-
-df_test
+df_test.head(3)
 
 # +
+stoplist = ['and/or', '/h', 't1', 'dc', 'mm', 'wt', '113a', '115a', 'ofdm', 'lpwa']
 temp = []
 for index, row in tqdm(df_test.iterrows(), total=df_test.shape[0], position=0, leave=True):
 #for index in tqdm(range(df_test.shape[0]), position=0, leave=True):
     #row = df_test.iloc[index]
     clean_document = row.ABSTRACT.split()
+    # Remove some additional stopwords
+    clean_document = [token for token in clean_document if token not in stoplist]
     label = row.Y02
     importance = row.Y02_imp
     ind = row.APPLN_ID
 
-    # First round of text cleaning
-    clean_document = [token.lower().rstrip(string.punctuation).lstrip(string.punctuation) for token in clean_document 
-                      if not token.isdecimal() and not pattern1.match(token) and not all([j in string.punctuation for j in [c for c in token]]) and len(token)>1]
-    # Second round of string cleaning removing stop words
+    clean_document = row.LEMMAS
+    # Remove some additional stopwords
     clean_document = [token for token in clean_document if token not in stoplist]
+    # Remove Y04 and Y10 tag
+    labels = [cpc for cpc in row.CPC if cpc not in ['Y04', 'Y10']]
         
     # Create word embedding matrix
     patent_embedding = word_list_to_embedding_array(clean_document)
@@ -160,7 +124,7 @@ for index, row in tqdm(df_test.iterrows(), total=df_test.shape[0], position=0, l
     
     # Calculate proximity to all clean technology semantic spaces
     for y02 in ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']:
-        for n_words in range(10, 5000+1, 100):
+        for n_words in [10, 20, 30, 40, 50, 100, 250, 500, 1000, 2000, 3000, 4000]:
             technology_embedding = get_semantic_vectors(y02, n_words)
             
             # Calculate cosine similarity between all permutations of patent vector space and technology semantic vector space
@@ -175,14 +139,13 @@ for index, row in tqdm(df_test.iterrows(), total=df_test.shape[0], position=0, l
     #if index==5:
     #    break
             
-df_temp = pd.DataFrame(temp, columns=['ID', 'LABEL', 'Y02', 'Y02_IMPORTANCE', 'N_WORDS', 'MEAN', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN'])
+df_prox = pd.DataFrame(temp, columns=['APPLN_ID', 'LABEL', 'Y02', 'Y02_IMPORTANCE', 'N_WORDS', 'MEAN', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN'])
 # -
 
-df_temp
+df_prox
 
-# + active=""
-# # Save to disk
-# df_temp.to_csv(here(r'.\03_Model\temp\df_validation_patents.txt'), sep='\t', encoding='utf-8')
+# Save to disk
+df_prox.to_csv(here(r'.\03_Model\temp\df_validation_patents.txt'), sep='\t', encoding='utf-8')
 
 # + [markdown] tags=[]
 # ## Some visualizations 

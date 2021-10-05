@@ -26,28 +26,48 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import classification_report
 import seaborn as sns
 
-# Encoding issue here!
 df = pd.read_pickle(here(r'.\01_Data\01_Patents\epo2vvc_patents.pkl'))
 
 df.shape
 
-# There are some non-English texts (should not be there as they were translated in 01_access_patstat.py) <- rerun. For now drop these.
-df = df.loc[df.ABSTRACT_LANG=='en',:]
-
-# Drop patents with missing entries
-df = df.loc[df.ABSTRACT.notnull(),:]
+df.head(3)
 
 # Drop patents with very short (uninformative) patent abstracts
-df = df.loc[df.ABSTRACT.apply(len)>30,:]
+df = df.loc[df.LEMMAS.apply(len)>=1]
+
+df.shape
 
 # Add label in string format
 df['Y02_string'] = df.Y02.map({0: ['non_cleantech'], 1: ['cleantech']})
 
 df.Y02.value_counts()
 
-# There more than 400,000 non-cleantech patents and more than 35,000 cleantech patents. Use these as training data for text classification model.
+# There more than 500,000 non-cleantech patents and more than 40,000 cleantech patents. Use these as training data for text classification model.
 
-df
+# Lemmatization of data -> datum is wrong.
+# Moreover, lemmas should be lowercased and should consist of more than one character
+tqdm.pandas()
+df['LEMMAS'] = df.LEMMAS.progress_apply(lambda x: [lemma.lower().replace('datum', 'data') for lemma in x if len(lemma)>1])
+
+# Count number of lemmas
+vocs = set()
+for index, row in tqdm(df.iterrows()):
+    voc = set(row.LEMMAS)
+    vocs.update(voc)
+#    if index > 100:
+#        break
+len(vocs)
+
+# The corpus comprises almost 350,000 distinct lemmas.
+
+# Count number of patents in different Y02 classes
+y02_count = {}
+for y02 in ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']:
+    y02_count[y02] = df.CPC.apply(lambda x: y02 in x).sum()
+
+y02_count
+
+# Number of Y02 patents in some Y02 classes low (Y02C, Y02D). Make sure that the test set contains a minimum number samples for each Y02 class.
 
 # +
 # Train-dev-test split
@@ -58,8 +78,15 @@ X_train = df_train.sample(1000).ABSTRACT.values
 X_test = df_test.sample(1000).ABSTRACT.values
 y_train = df_train.sample(1000).Y02.values
 y_test = df_test.sample(1000).Y02.values
+# -
 
-# + [markdown] tags=[]
+df_test.shape
+
+# Save test data to disk for future reference
+with open(here(r'.\03_Model\temp\df_test.pkl'), 'wb') as f:
+    pkl.dump(df_test, f)
+
+# + [markdown] tags=[] heading_collapsed="true"
 # # Transformer language model 
 # -
 
@@ -115,7 +142,7 @@ classifier(
 
 # The problem of transformer models is that they are made for shorter sequences of text. Later on in the project the classifier is supposed to be applied on longer texts from corporate websites. For this purpose a more traditional text classification with heuristics from information retrieval (e.g. tf-idf) will be more suitable. 
 
-# + [markdown] tags=[]
+# + [markdown] tags=[] heading_collapsed="true"
 # # Tf-idf text classification model
 # -
 
@@ -182,38 +209,31 @@ print(classification_report(y_true = df_test_pred.true_Y02, y_pred = df_test_pre
 
 # See [here](https://github.com/julienOlivier3/Text_Classification_Capstone) for alternatively training a neural network.
 
-# + [markdown] tags=[]
+# + [markdown] tags=[] heading_collapsed="true"
 # # Labelled Topic Model 
 # -
 
 import tomotopy as tp
 
-stoplist = ['for', 'a', 'of', 'the', 'and', 'to', 'in', 'at', 'an', 'on', 'this', 'is', 'are', 'it', 'the', 'and/or', 'i', 'wt', 'or', 'from', 'first', 'least']
+stoplist = ['and/or', '/h', 't1', 'dc', 'mm', 'wt', '113a', '115a', 'ofdm', 'lpwa']
 
-# Drop tokens of form: '(345)'
-pattern1 = re.compile("^\(\d{1,}\)$")
-
-# +
-# ToDo: Add lemmatization here
+# Instantiate labelled LDA model
 model = tp.PLDAModel(tw=tp.TermWeight.IDF, topics_per_label=1, 
                      #latent_topics=8,
                      seed=333)
 
+# Add documents to model
 for index, row in tqdm(df_train.iterrows()):
-    clean_document = row.ABSTRACT.split()
-    labels = row.CPC
-
-    # First round of text cleaning
-    clean_document = [token.lower().rstrip(string.punctuation).lstrip(string.punctuation) for token in clean_document 
-                      if not token.isdecimal() and not pattern1.match(token) and not all([j in string.punctuation for j in [c for c in token]]) and len(token)>1]
-    # Second round of string cleaning removing stop words
+    clean_document = row.LEMMAS
+    # Remove some additional stopwords
     clean_document = [token for token in clean_document if token not in stoplist]
-        
+    # Remove Y04 and Y10 tag
+    labels = [cpc for cpc in row.CPC if cpc not in ['Y04', 'Y10']]
+    # Add document and labels to model
     model.add_doc(clean_document, labels=labels)
-# -
 
 model.burn_in = 5
-print('Starting training model:')
+print('Start training model:')
 for i in range(0, 100, 10):
     model.train(10)
     print('Iteration: {}\tLog-likelihood: {}'.format(i, model.ll_per_word))
@@ -225,7 +245,7 @@ model.summary(topic_word_top_n=10)
 # model.save(here(r'.\03_Model\temp\PLDA_model.bin').__str__(), full=True)
 # -
 
-# Labelled LDA models rather serve as way to build semantic descriptions of clean technologies. Maybe still a minor research contribution?
+# Labelled LDA models rather serve as way to build semantic descriptions of clean technologies (generative not discriminative model). Maybe still a minor research contribution?
 
 # Idea: Take the semantic description of the clean technologies (i.e. the most relevant words per topic in the topic model) as basis to scan the corporate websites. There are two options for this approach:
 # - simple scan of the websites for keywords
@@ -243,10 +263,6 @@ for ind, topic in enumerate(model.topic_label_dict):
     df_topic_words = df_topic_words.append(temp)
 
 df_topic_words
-
-# Alternative look at data:
-
-pd.concat([pd.DataFrame(model.get_topic_words(topic_id=ind, top_n=10000), columns=[topic+'_words', topic+'_prob']) for ind, topic in enumerate(model.topic_label_dict)], axis=1)
 
 # + active=""
 # # Save to disk
@@ -268,6 +284,33 @@ with open(config.PATH_TO_GLOVE + '/glove.6B.50d.txt', encoding='utf-8') as f:
         coefs = np.fromstring(coefs, "f", sep=" ")
         embeddings_index[word] = coefs
 print("Found %s word vectors." % len(embeddings_index))
+
+# Create set of technology words for which pre-trained word embeddings exist
+technology_words = set(df_topic_words.Word.values)
+embedded_words = set(embeddings_index.keys())
+embedded_technology_words = embedded_words.intersection(technology_words)
+
+len(technology_words), len(embedded_words), len(embedded_technology_words)
+
+# Reduce technology words to those with existing word embeddings
+df_topic_words = df_topic_words.loc[df_topic_words.Word.isin(embedded_technology_words)]
+
+df_topic_words.shape
+
+# Create dataframe containing only words for which embeddings exist for all technology classes
+df_excel = pd.DataFrame()
+for topic in model.topic_label_dict:
+    df_temp = df_topic_words.loc[df_topic_words.Topic==topic][:5000]
+    df_temp = df_temp.drop(columns=['Topic']).rename(columns={'Word': topic+'_word', 'Prob': topic+'_prob'}).reset_index(drop=True)
+    print(topic, '\t', df_temp.shape)
+    df_excel = pd.concat([df_excel, df_temp], axis=1)
+
+df_excel
+
+# + active=""
+# # Save to disk
+# df_excel.to_excel(here(r'.\03_Model\temp\df_topic_words.xlsx'), encoding='utf-8')
+# -
 
 semantic_vectors = {}
 for topic in model.topic_label_dict:
@@ -293,15 +336,15 @@ for topic in model.topic_label_dict:
 # Read semantic vectors from disk
 semantic_vectors = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors.pkl'), 'rb'))
 
-# From this picture it makes possibly sense to restrict the technology clusters in semantic vector space to the 5,000 most relevant terms.
+# From this picture it makes possibly sense to restrict the technology clusters in semantic vector space to the 4,000 most relevant terms.
 
-semantic_vectors5000 = {}
+semantic_vectors4000 = {}
 for topic in list(semantic_vectors.keys()):
-    vec = semantic_vectors[topic][0:5000,]
-    semantic_vectors5000[topic] = vec
+    vec = semantic_vectors[topic][0:4000,]
+    semantic_vectors4000[topic] = vec
 
 for topic in list(semantic_vectors.keys()):
-    print(topic, '\t' , len(semantic_vectors5000[topic]))
+    print(topic, '\t' , len(semantic_vectors4000[topic]))
 
 
 # Write a general function to extract semantic vectors of different size:
