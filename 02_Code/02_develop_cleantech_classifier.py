@@ -86,7 +86,7 @@ df_test.shape
 with open(here(r'.\03_Model\temp\df_test.pkl'), 'wb') as f:
     pkl.dump(df_test, f)
 
-# + [markdown] tags=[] heading_collapsed="true"
+# + [markdown] tags=[] heading_collapsed="true" jp-MarkdownHeadingCollapsed=true
 # # Transformer language model 
 # -
 
@@ -420,6 +420,42 @@ for ra in range(A.shape[0]):
         temp.append(cosine_similarity_vectors(A[ra], B[rb]))
 np.mean(temp)
 
+# Let us assume the semantic space of "carbon capture and storage technologies" comprises the words $v_{CSS} = [carbon, dioxide, absorb, ...]$.
+# A company description of a firm that applies these technologies may comprise the words $v_{firm} = [co2, reduce, ...]$.
+#
+# In essence, a company descriptions is likely to be less technical than a patent description. Still, the technological space and the company description point to the same construct: the extraction of CO2 from space. So it desirable to have a high similarity between $v_{CSS}$ and $v_{firm}$.
+
+v_CSS = [embeddings_index[word] for word in ['carbon', 'dioxide', 'absorb']]
+v_firm = [embeddings_index[word] for word in ['co2', 'reduce']]
+
+cos1 = cosine_similarity_vectors(embeddings_index['carbon'], embeddings_index['co2'])
+cos2 = cosine_similarity_vectors(embeddings_index['carbon'], embeddings_index['reduce'])
+cos3 = cosine_similarity_vectors(embeddings_index['dioxide'], embeddings_index['co2'])
+cos4 = cosine_similarity_vectors(embeddings_index['dioxide'], embeddings_index['reduce'])
+cos5 = cosine_similarity_vectors(embeddings_index['absorb'], embeddings_index['co2'])
+cos6 = cosine_similarity_vectors(embeddings_index['absorb'], embeddings_index['reduce'])
+
+cos1, cos2, cos3, cos4, cos5, cos6
+
+np.mean([cos1, cos2, cos3, cos4, cos5, cos6])
+
+cosine_similarity(v_CSS, v_firm).mean()
+
+# Note that cosine similarity between word embeddings has value range [-1, 1]. Values < 0 indicate dissimilarity and should thus be set to 0 in a similarity measure following the approach in this [paper](https://aclanthology.org/N19-1181.pdf).
+
+temp = cosine_similarity(v_CSS, v_firm).flatten()
+temp[temp>0.7]=1
+temp
+
+# Alternatively, one can also take the mean of both vectors first and caclculate cosine similarity then.
+
+cosine_similarity_vectors(np.array(v_CSS).mean(axis=0), np.array(v_firm).mean(axis=0))
+
+from gensim import matutils
+np.dot(matutils.unitvec(np.array(v_CSS).mean(axis=0)), matutils.unitvec(np.array(v_firm).mean(axis=0)))
+
+
+# It looks like a decent similarity between the two vectors exists.
 
 # Mean of upper/lower triangle of resulting matrix gives overall similarity between arrays in ndarray.
 

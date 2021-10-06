@@ -131,3 +131,13 @@ def string_to_lemma(doc, exclude_pos = ['PUNCT', 'NUM', 'X'], exclude_stopwords 
             return([token.lemma_ for token in doc if not token.is_stop])
         else:
             return([token.lemma_ for token in doc])
+
+
+# Create a color map for the distinct cleantech classes
+from matplotlib import cm
+temp = sns.cubehelix_palette(start=2, rot=0, dark=0.35, light=1, reverse=False, as_cmap=True).colors
+ind = np.round(np.linspace(temp.shape[0]/3, temp.shape[0]-1, 8)).astype(int)
+greens = temp[ind]
+greens_dict = {}
+for index, y02 in enumerate(['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']):
+    greens_dict[y02] = greens[index]
