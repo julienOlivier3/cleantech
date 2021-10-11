@@ -26,7 +26,7 @@ from pyprojroot import here
 from tqdm import tqdm
 import pickle as pkl
 
-# + [markdown] tags=[]
+# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true
 # ## Extract Data 
 # -
 
@@ -198,12 +198,16 @@ df_abs.shape
 
 df_abs
 
+# + [markdown] tags=[]
 # ## Aggregate Data 
+# -
 
 # According to EPO, the Cooperative Patent Classification (CPC) is an extension of the IPC and is jointly managed by the EPO and the US Patent and Trademark Office.
 # We now aggregate the CPC information both at patent level and later at firm level to get an idea to which technological fields the patents relate to and to proxy the technological profiles of firms.
 
+# + [markdown] tags=[]
 # ### CPC Level 
+# -
 
 df_cpcs = pd.read_csv(here("./01_Data/01_Patents/epo2vvc_cpc_classes.txt"), sep='\t', encoding='utf-8')
 
@@ -336,40 +340,63 @@ df_pat.shape
 
 df_pat['LEMMAS'] = df_pat.ABSTRACT.progress_apply(lambda x: string_to_lemma(x))
 
-df_pat.to_pickle(here(r".\01_Data\01_Patents\epo2vvc_patents.pkl"))
+# + active=""
+# df_pat.to_pickle(here(r".\01_Data\01_Patents\epo2vvc_patents.pkl"))
+# -
 
 # ### Firm Level 
 
 # Aggregate data from patent level to firm level.
 
-df_epo2vvc.shape
+# Read match between EPO and MUP entities
+df_epo2vvc = pd.read_csv(here("./01_Data/01_Patents/epo2vvc2019best.txt"), sep='\t')
 
-df_epo2vvc = df_epo2vvc.merge(df_pat.drop(columns=['ABSTRACT_LANG', 'ABSTRACT_LEN']), on='APPLN_ID', how='left')
+# Read file with firm info (most importantly firm age)
+df_dates_w58 = pd.read_stata(config.,PATH_TO_MUP + "/Daten/Aufbereitet/gruenddat_aufb_w58.dta")
 
-df_epo2vvc.shape
+# Read prepared patent data
+df_pat = pd.read_pickle(here("./01_Data/01_Patents/epo2vvc_patents.pkl"))
+
+colnames = ['appln_id', 'crefo', 'appln_fili', 'earliest_f', 'granted']
+df_temp = df_epo2vvc[colnames]
+df_temp.columns = [col.upper() for col in colnames]
+df_temp['APPLN_ID'] = df_temp.APPLN_ID.astype(str)
+
+# Merge crefo (firm identifier) earliest_f (year of filing the patent) granted (information whether patent has been granted) to df_pat
+df_pat = df_pat.merge(df_temp, how='left', on='APPLN_ID')
 
 # Drop columns which are not of interest
-df_epo2vvc.drop(columns=['EQUAL', 'BESTCREFO', 'BESTRANK', 'APPLN_KIND'], inplace=True)
+df_pat = df_pat[['APPLN_ID', 'CREFO', 'Y02', 'APPLN_FILI', 'EARLIEST_F', 'GRANTED']]
 
-# Drop patents w/o CPC info
-df_epo2vvc = df_epo2vvc.loc[df_epo2vvc.CPC.notnull(),:]
+df_pat.head(3)
 
-df_epo2vvc.shape
+# Extract distinct company IDs and look at number of patenting firms
+crefos = list(df_pat.CREFO.drop_duplicates().values)
+len(crefos)
 
-# Convert information whether patent has been granted or not to integer
-df_epo2vvc['GRANTED'] = df_epo2vvc.GRANTED.map({'N': 0, 'Y': 1}).copy()
+df_pat.dtypes
 
-df_epo2vvc.head(3)
+# Do some cleaning in df_dates_w58
+df_dates_w58['crefo'] = df_dates_w58.crefo.astype(pd.Int64Dtype()).astype(np.int64)
+df_temp = df_dates_w58.loc[df_dates_w58.crefo.isin(crefos)]
+df_temp.columns = [col.upper() for col in df_temp.columns]
 
-n1 = len(df_epo2vvc)
-n2 = len(df_epo2vvc.loc[df_epo2vvc.ABSTRACT.isnull(),:]) # number of patents w/o abstract texts
-n2, round(n2/n1, 5)
+df_temp.GRUEND_JAHR.notnull().sum()/len(df_temp)
 
-# 1218 patents do not have an abstract. This is less than 0.5% and thus negligible.
+# For 96% of the patenting firms, the founding year exists. The missing 4% can be neglected for a quick look at the distribution of the age of firms at time of patent filing.
 
-df_epo2vvc = df_epo2vvc.loc[df_epo2vvc.ABSTRACT.notnull()]
+# Now merge firm information
+df_pat = df_pat.merge(df_temp[['CREFO', 'GRUEND_JAHR']], on='CREFO', how='left')
 
-df_epo2vvc.shape
+# Calculate age at filing patent
+df_pat['FILING_JAHR'] = pd.DatetimeIndex(df_pat.APPLN_FILI).year
+df_pat['AGE_AT_FILING'] = df_pat.FILING_JAHR-df_pat.GRUEND_JAHR
+
+df_pat.loc[(df_pat.AGE_AT_FILING>0) & (df_pat.AGE_AT_FILING<300),:].AGE_AT_FILING.plot(kind='hist', bins=100)
+
+# Distribution looks pretty skewed but not in the direction as expected.
+
+# Continue here with additional firm characteristics and subsequent aggregation to firm level.
 
 # Now conduct aggregation from patent level to firm level
 df_firm = df_epo2vvc.groupby('CREFO').agg(

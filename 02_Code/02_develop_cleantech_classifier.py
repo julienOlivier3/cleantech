@@ -87,62 +87,6 @@ with open(here(r'.\03_Model\temp\df_test.pkl'), 'wb') as f:
     pkl.dump(df_test, f)
 
 # + [markdown] tags=[] heading_collapsed="true" jp-MarkdownHeadingCollapsed=true
-# # Transformer language model 
-# -
-
-# Note that most transformer models can only sequences of up to 512 or 1024 tokens, and will crash when asked to process longer sequences (exceptions are *Longformer* and *LED*). Thus look at number of subword tokens in abstracts.
-
-# +
-from transformers import BertTokenizer
-
-tokenizer = BertTokenizer.from_pretrained("bert-base-cased")
-# -
-
-sequence = "Hello it's me!"
-tokens = tokenizer.tokenize(sequence)
-tokens
-
-# %%time
-df_train.ABSTRACT.sample(10000).apply(lambda abstract: len(tokenizer.tokenize(abstract))).plot(kind='hist')
-
-# Some outliers seem to exits. But the majority of abstracts is well below 1000 subword tokens. Transformer model is capable to handle different sequence length including the max sequence length allowed by the underlying model.
-
-# Let us give it a shot and do the classification with a pretrained model without finetuning (zero-shot-classification).
-
-import tensorflow as tf
-from transformers import AutoTokenizer, TFAutoModelForSequenceClassification
-
-# +
-checkpoint = "bert-base-uncased"
-tokenizer = AutoTokenizer.from_pretrained(checkpoint)
-model = TFAutoModelForSequenceClassification.from_pretrained(checkpoint)
-sequences = [
-  "I've been waiting for a HuggingFace course my whole life.",
-  "So have I!"
-]
-
-tokens = tokenizer(sequences, padding=True, truncation=True, return_tensors="tf")
-output = model(tokens)
-tf.math.softmax(output.logits, axis=-1)
-
-# +
-from transformers import pipeline
-
-classifier = pipeline("zero-shot-classification")
-# -
-
-sample_sequences = list(df_train.loc[df_train.Y02==0,'ABSTRACT'].sample(10).values)
-sample_sequences.extend(list(df_train.loc[df_train.Y02==1,'ABSTRACT'].sample(10).values))
-
-# %%time
-classifier(
-    sample_sequences,
-    candidate_labels=["cleantech", "non_cleantech"],
-)
-
-# The problem of transformer models is that they are made for shorter sequences of text. Later on in the project the classifier is supposed to be applied on longer texts from corporate websites. For this purpose a more traditional text classification with heuristics from information retrieval (e.g. tf-idf) will be more suitable. 
-
-# + [markdown] tags=[] heading_collapsed="true"
 # # Tf-idf text classification model
 # -
 
@@ -681,3 +625,105 @@ sns.relplot(
 )
 
 # If no search terms match exactly, then the proximity measure n_exact_norm+similarity.mean() converge towards the mean cosine similarity across all permutations. Proximity above mean could thus be a filter for considering a text as technology related.
+
+# Alternatively, one could transfer the technology spaces into vector space by calculating an weighted average of the single word embeddings. As on would use the probabilities from the distribution over words from LLDA as weights.
+
+# Read topic-proba-df
+df_topic_words = pd.read_csv(here(r'.\03_Model\temp\df_topic_words.txt'), sep='\t', encoding='utf-8', index_col='Unnamed: 0')
+
+df_topic_words.head(3)
+
+# %%time
+embeddings_index = {}
+with open(config.PATH_TO_GLOVE + '/glove.6B.50d.txt', encoding='utf-8') as f:
+    for line in f:
+        word, coefs = line.split(maxsplit=1)
+        coefs = np.fromstring(coefs, "f", sep=" ")
+        embeddings_index[word] = coefs
+print("Found %s word vectors." % len(embeddings_index))
+
+techword_embeddings = []
+words = set(df_topic_words.Word.dropna())
+for ind, word in tqdm(enumerate(words)):
+    techword_embeddings.append((word, embeddings_index.get(word, None)))
+    #print(ind)
+    #if ind > 20:
+    #    break
+df_embeddings = pd.DataFrame(techword_embeddings, columns=['Word', 'Embedding'])
+
+df_topic_words = df_topic_words.merge(df_embeddings).sort_values(by=['Topic', 'Prob'], ascending=False)
+
+df_topic_words.loc[df_topic_words.Topic=='Y02C'].head(20).dropna()
+
+df_temp = df_topic_words.loc[df_topic_words.Topic=='Y02C'].dropna()
+embeddings = df_temp.head(2).Embedding.values
+weights = df_temp.head(2).Prob.values
+np.average(embeddings, axis=0, weights=weights)
+
+tech_classes = set(df_topic_words.Topic.values)
+n_words = [10, 20, 30, 40, 50, 100, 250, 500, 1000, 2000, 3000, 4000]
+semantic_vectors_wavg = {}
+for tech_class in tqdm(tech_classes):
+    semantic_vectors_wavg[tech_class] = {}
+    for n_word in n_words:
+        df_temp = df_topic_words.loc[df_topic_words.Topic==tech_class].dropna()
+        embeddings = df_temp.head(n_word).Embedding.values
+        weights = df_temp.head(n_word).Prob.values
+        embedding = np.average(embeddings, axis=0, weights=weights)
+        semantic_vectors_wavg[tech_class][n_word] = embedding
+        #if n_word>20:
+        #    break
+
+# Save semantic vectors to disk
+with open(here(r'.\03_Model\temp\semantic_vectors_wavg.pkl'), 'wb') as f:
+    pkl.dump(semantic_vectors_wavg, f)
+
+# + [markdown] tags=[] heading_collapsed="true" jp-MarkdownHeadingCollapsed=true tags=[]
+# # Transformer language model 
+# -
+
+# So far, semantic technology spaces obtained from LLDA are transfered to vector space using word embeddings and thus creating a $Q \times S$ vector space with $Q$ as the number of words used to describe the semantic technology space and $S$ as the size of the word embeddings. Another way of shifting a semantic technology space to vector space is to concatentate the $Q$ words describing the technology and using a model from the transformers family to create one embedding for the concatenated technology space. This results in a $1 \times S$ vector space with $S$ of the transformer's embedding space. In the following we use the [SBERT](https://www.sbert.net/index.html) transformer model to create the embeddings.
+
+# Read topic-proba-df
+df_topic_words = pd.read_csv(here(r'.\03_Model\temp\df_topic_words.txt'), sep='\t', encoding='utf-8', index_col='Unnamed: 0')
+
+
+# Calculate cosine similarity between two vectors
+def cosine_similarity_vectors(v1, v2):
+    numerator=np.dot(v1, v2)
+    denumerator1 = np.sqrt(np.sum(np.square(v1)))
+    denumerator2 = np.sqrt(np.sum(np.square(v2)))
+    return(numerator*1/(denumerator1*denumerator2))
+
+
+from sentence_transformers import SentenceTransformer
+from sentence_transformers import util
+model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+
+#Sentences are encoded by calling model.encode()
+sentence_embeddings1 = model.encode(' '.join(df_topic_words.loc[df_topic_words.Topic=='Y02C'].head(10).Word.values))
+sentence_embeddings2 = model.encode(' '.join(df_topic_words.loc[df_topic_words.Topic=='Y02C'].head(20).Word.values))
+
+util.pytorch_cos_sim(sentence_embeddings1, sentence_embeddings1), util.pytorch_cos_sim(sentence_embeddings1, sentence_embeddings2)
+
+cosine_similarity_vectors(sentence_embeddings1, sentence_embeddings2)
+
+# Now we want to create the SBERT embeddings for different $Q$ and all technology classes.
+
+tech_classes = set(df_topic_words.Topic.values)
+n_words = [10, 20, 30, 40, 50, 100, 250, 500, 1000, 2000, 3000, 4000]
+semantic_vectors_bert = {}
+for tech_class in tqdm(tech_classes):
+    semantic_vectors_bert[tech_class] = {}
+    for n_word in n_words:
+        semantic_tech = ' '.join(str(i) for i in list(df_topic_words.loc[df_topic_words.Topic==tech_class].head(n_word).Word.values))
+        embedding = model.encode(semantic_tech)
+        semantic_vectors_bert[tech_class][n_word] = embedding
+        #if n_word>20:
+        #    break
+
+semantic_vectors_bert['Y02A'][10]
+
+# Save semantic vectors to disk
+with open(here(r'.\03_Model\temp\semantic_vectors_bert.pkl'), 'wb') as f:
+    pkl.dump(semantic_vectors_bert, f)
