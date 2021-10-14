@@ -86,7 +86,7 @@ df_test.shape
 with open(here(r'.\03_Model\temp\df_test.pkl'), 'wb') as f:
     pkl.dump(df_test, f)
 
-# + [markdown] tags=[] heading_collapsed="true" jp-MarkdownHeadingCollapsed=true
+# + [markdown] heading_collapsed="true" jp-MarkdownHeadingCollapsed=true tags=[]
 # # Tf-idf text classification model
 # -
 
@@ -153,7 +153,7 @@ print(classification_report(y_true = df_test_pred.true_Y02, y_pred = df_test_pre
 
 # See [here](https://github.com/julienOlivier3/Text_Classification_Capstone) for alternatively training a neural network.
 
-# + [markdown] tags=[] heading_collapsed="true"
+# + [markdown] heading_collapsed="true" tags=[]
 # # Labelled Topic Model 
 # -
 

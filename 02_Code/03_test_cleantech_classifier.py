@@ -209,8 +209,6 @@ def proximity_testing(df_test, embedding_type):
 df_wavg = proximity_testing(df_test, embedding_type='we_avg')
 df_bert = proximity_testing(df_test, embedding_type='bert')
 
-df_wavg
-
 # +
 stoplist = ['and/or', '/h', 't1', 'dc', 'mm', 'wt', '113a', '115a', 'ofdm', 'lpwa']
 temp = []

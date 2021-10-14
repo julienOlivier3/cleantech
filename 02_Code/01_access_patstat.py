@@ -26,7 +26,7 @@ from pyprojroot import here
 from tqdm import tqdm
 import pickle as pkl
 
-# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true
+# + [markdown] jp-MarkdownHeadingCollapsed=true tags=[]
 # ## Extract Data 
 # -
 
@@ -339,6 +339,21 @@ df_pat = df_pat.loc[df_pat.ABSTRACT.notnull()]
 df_pat.shape
 
 df_pat['LEMMAS'] = df_pat.ABSTRACT.progress_apply(lambda x: string_to_lemma(x))
+
+df_pat.loc[df_pat.CPC.apply(lambda x: 'Y02E' in x), ['CPC', 'ABSTRACT']].sample(3).style.set_properties(subset=['ABSTRACT'], **{'width': '900px'})
+
+len(df_pat)
+
+# Corpus consists of close to 560,000 patents.
+
+# Count number of lemmas
+vocs = set()
+for index, row in tqdm(df_pat.iterrows()):
+    voc = set(row.LEMMAS)
+    vocs.update(voc)
+#    if index > 100:
+#        break
+len(vocs)
 
 # + active=""
 # df_pat.to_pickle(here(r".\01_Data\01_Patents\epo2vvc_patents.pkl"))

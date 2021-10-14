@@ -12,5 +12,5 @@
 .virtual_documents/
 .rcache
 .pycache
-04_Writing/
+04_Writing/*.pdf
 
