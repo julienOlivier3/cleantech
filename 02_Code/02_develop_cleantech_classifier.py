@@ -86,7 +86,7 @@ df_test.shape
 with open(here(r'.\03_Model\temp\df_test.pkl'), 'wb') as f:
     pkl.dump(df_test, f)
 
-# + [markdown] heading_collapsed="true" jp-MarkdownHeadingCollapsed=true tags=[]
+# + [markdown] heading_collapsed="true" jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true
 # # Tf-idf text classification model
 # -
 
@@ -323,6 +323,8 @@ def cosine_similarity_vectors(v1, v2):
     denumerator2 = np.sqrt(np.sum(np.square(v2)))
     return(numerator*1/(denumerator1*denumerator2))
 
+
+cosine_similarity_vectors(embeddings_index['absorb'], embeddings_index['remove'])
 
 cosine_similarity_vectors(A[0], A[1])
 
@@ -678,11 +680,11 @@ for tech_class in tqdm(tech_classes):
 with open(here(r'.\03_Model\temp\semantic_vectors_wavg.pkl'), 'wb') as f:
     pkl.dump(semantic_vectors_wavg, f)
 
-# + [markdown] tags=[] heading_collapsed="true" jp-MarkdownHeadingCollapsed=true tags=[]
+# + [markdown] tags=[] heading_collapsed="true" jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true
 # # Transformer language model 
 # -
 
-# So far, semantic technology spaces obtained from LLDA are transfered to vector space using word embeddings and thus creating a $Q \times S$ vector space with $Q$ as the number of words used to describe the semantic technology space and $S$ as the size of the word embeddings. Another way of shifting a semantic technology space to vector space is to concatentate the $Q$ words describing the technology and using a model from the transformers family to create one embedding for the concatenated technology space. This results in a $1 \times S$ vector space with $S$ of the transformer's embedding space. In the following we use the [SBERT](https://www.sbert.net/index.html) transformer model to create the embeddings.
+# So far, semantic technology spaces obtained from LLDA are transfered to vector space using word embeddings and thus creating a $Q \times E$ vector space with $Q$ as the number of words used to describe the semantic technology space and $E$ as the size of the word embeddings. Another way of shifting a semantic technology space to vector space is to concatentate the $Q$ words describing the technology and using a model from the transformers family to create one embedding for the concatenated technology space. This results in a $1 \times E$ vector space with $E$ of the transformer's embedding space. In the following we use the [SBERT](https://www.sbert.net/index.html) transformer model to create the embeddings.
 
 # Read topic-proba-df
 df_topic_words = pd.read_csv(here(r'.\03_Model\temp\df_topic_words.txt'), sep='\t', encoding='utf-8', index_col='Unnamed: 0')

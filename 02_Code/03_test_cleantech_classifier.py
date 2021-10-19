@@ -36,7 +36,7 @@ model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
 df_topic_words = pd.read_csv(here(r'.\03_Model\temp\df_topic_words.txt'), sep='\t', encoding='utf-8', index_col='Unnamed: 0')
 
 # Read semantic vectors from disk
-semantic_vectors = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors.pkl'), 'rb'))      # based on word embeddings
+semantic_vectors = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors.pkl'), 'rb'))           # based on word embeddings
 semantic_vectors_wavg = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors_wavg.pkl'), 'rb')) # based on averaged word embeddings with word probas as weights
 semantic_vectors_bert = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors_bert.pkl'), 'rb')) # based on transformer embeddings
 
@@ -206,7 +206,7 @@ def proximity_testing(df_test, embedding_type):
     return(df_prox)
 
 
-df_wavg = proximity_testing(df_test, embedding_type='we_avg')
+#df_wavg = proximity_testing(df_test, embedding_type='we_avg')
 df_bert = proximity_testing(df_test, embedding_type='bert')
 
 # +

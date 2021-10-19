@@ -30,6 +30,15 @@ function_gradient_redTOgreen <- colorRampPalette(c(bb_red_dark, ml_green_dark))
 function_gradient_redTOwhiteTOgreen <- colorRampPalette(c(bb_red_dark, "white", ml_green_dark))
 function_gradient_redTOblueTOgreen <- colorRampPalette(c(bb_red_dark, bb_blue_dark, ml_green_dark))
 
+# Define some more colors
+green <- rgb(0.21545773, 0.43364693, 0.25936727, maxColorValue = 1)
+grey <- rgb(119,119,119, alpha = 150, maxColorValue = 255)
+greyL <- rgb(159,159,159, maxColorValue = 255)
+red <- rgb(178,34,34,alpha = 150,  maxColorValue = 255)
+redL <- rgb(226,104,104,maxColorValue = 255)
+redL2 <- rgb(240,180,180,maxColorValue = 255)
+gold <- rgb(255,215,0, alpha = 150, maxColorValue = 255)
+goldL <- rgb(254,227,76, maxColorValue = 255)
 
 
 # Theme -------------------------------------------------------------------

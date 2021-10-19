@@ -3,15 +3,7 @@ library(here)
 library(tikzDevice)
 source(here("02_Code/util.R"))
 
-# Define some more colors
-green <- rgb(0,100,0, alpha = 150, maxColorValue = 255)
-grey <- rgb(119,119,119, alpha = 150, maxColorValue = 255)
-greyL <- rgb(159,159,159, maxColorValue = 255)
-red <- rgb(178,34,34,alpha = 150,  maxColorValue = 255)
-redL <- rgb(226,104,104,maxColorValue = 255)
-redL2 <- rgb(240,180,180,maxColorValue = 255)
-gold <- rgb(255,215,0, alpha = 150, maxColorValue = 255)
-goldL <- rgb(254,227,76, maxColorValue = 255)
+
 
 # Define logistic function 
 # Reference: https://www.desmos.com/calculator/agxuc5gip8?lang=de
