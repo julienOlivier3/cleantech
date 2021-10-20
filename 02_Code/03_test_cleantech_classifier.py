@@ -170,7 +170,8 @@ def proximity_testing(df_test, embedding_type):
                     similarity_mean = similarity.mean()
                     # Calculate mean embedding and then cosine similarity between both document embeddings
                     similarity_mean2 = cosine_similarity_vectors(patent_embedding.mean(axis=0), technology_embedding.mean(axis=0))
-                    similarity_mean2[similarity_mean2 < 0] = 0
+                    if similarity_mean2 < 0:
+                        similarity_mean2 = 0
 
                     # Calculate number of exact word matches
                     n_exact = (similarity == 1).sum()
@@ -245,59 +246,14 @@ for index, row in tqdm(df_test.iterrows(), total=df_test.shape[0], position=0, l
                     similarity_mean = similarity.mean()
                     # Calculate mean embedding and then cosine similarity between both document embeddings
                     similarity_mean2 = cosine_similarity_vectors(patent_embedding.mean(axis=0), technology_embedding.mean(axis=0))
-                    similarity_mean2[similarity_mean2 < 0] = 0
+                    if similarity_mean2 < 0:
+                        similarity_mean2 = 0
 
                     # Calculate number of exact word matches
                     n_exact = (similarity == 1).sum()
                     n_exact_norm = n_exact/len_patent_embedding
 
                     temp.append([ind, label, y02, importance, n_words, similarity_mean, similarity_mean2, n_exact, n_exact_norm, n_exact_norm+similarity_mean, n_exact_norm+similarity_mean2])
-    #if index==5:
-    #    break
-            
-df_prox = pd.DataFrame(temp, columns=['APPLN_ID', 'LABEL', 'Y02', 'Y02_IMPORTANCE', 'N_WORDS', 'MEAN', 'MEAN2', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN', 'N_EXACT_NORM_MEAN2'])
-
-# +
-stoplist = ['and/or', '/h', 't1', 'dc', 'mm', 'wt', '113a', '115a', 'ofdm', 'lpwa']
-temp = []
-for index, row in tqdm(df_test.iterrows(), total=df_test.shape[0], position=0, leave=True):
-#for index in tqdm(range(df_test.shape[0]), position=0, leave=True):
-    #row = df_test.iloc[index]
-    clean_document = row.ABSTRACT.split()
-    # Remove some additional stopwords
-    clean_document = [token for token in clean_document if token not in stoplist]
-    label = row.Y02
-    importance = row.Y02_imp
-    ind = row.APPLN_ID
-
-    clean_document = row.LEMMAS
-    # Remove some additional stopwords
-    clean_document = [token for token in clean_document if token not in stoplist]
-    # Remove Y04 and Y10 tag
-    labels = [cpc for cpc in row.CPC if cpc not in ['Y04', 'Y10']]
-        
-    # Create word embedding matrix
-    patent_embedding = word_list_to_embedding_array(clean_document)
-    len_patent_embedding = len(patent_embedding)
-    
-    # Calculate proximity to all clean technology semantic spaces
-    for y02 in ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']:
-        for n_words in [10, 20, 30, 40, 50, 100, 250, 500, 1000, 2000, 3000, 4000]:
-            technology_embedding = get_semantic_vectors(y02, n_words)
-            
-            # Calculate cosine similarity between all permutations of patent vector space and technology semantic vector space
-            similarity = np.round_(cosine_similarity(patent_embedding, technology_embedding).flatten(), decimals=5)
-            similarity[similarity < 0] = 0
-            similarity_mean = similarity.mean()
-            # Calculate mean embedding and then cosine similarity between both document embeddings
-            similarity_mean2 = cosine_similarity_vectors(patent_embedding.mean(axis=0), technology_embedding.mean(axis=0))
-            similarity_mean2[similarity_mean2 < 0] = 0
-        
-            # Calculate number of exact word matches
-            n_exact = (similarity == 1).sum()
-            n_exact_norm = n_exact/len_patent_embedding
-        
-            temp.append([ind, label, y02, importance, n_words, similarity_mean, similarity_mean2, n_exact, n_exact_norm, n_exact_norm+similarity_mean, n_exact_norm+similarity_mean2])
     #if index==5:
     #    break
             
@@ -414,7 +370,6 @@ plt.show()
 # # Testing on corporate websites 
 # -
 
-from util import string_to_lemma
 import config
 import pandas as pd
 import numpy as np
@@ -425,6 +380,7 @@ import seaborn as sns
 import pickle as pkl
 from tqdm import tqdm
 from sklearn.metrics.pairwise import cosine_similarity
+from util import string_to_lemma, greens
 
 
 # Function which joins list of strings to one joint string while treating missing values consistently
@@ -488,7 +444,8 @@ for index, row in tqdm(df.iterrows(), total=df.shape[0], position=0, leave=True)
             similarity_mean = similarity.mean()
             # Calculate mean embedding and then cosine similarity between both document embeddings
             similarity_mean2 = cosine_similarity_vectors(patent_embedding.mean(axis=0), technology_embedding.mean(axis=0))
-            similarity_mean2[similarity_mean2 < 0] = 0
+            if similarity_mean2 < 0:
+                similarity_mean2 = 0
         
             # Calculate number of exact word matches
             n_exact = (similarity == 1).sum()
@@ -501,13 +458,16 @@ for index, row in tqdm(df.iterrows(), total=df.shape[0], position=0, leave=True)
 df_prox = pd.DataFrame(temp, columns=['APPLN_ID', 'LABEL', 'Y02', 'N_WORDS', 'MEAN', 'MEAN2', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN', 'N_EXACT_NORM_MEAN2'])
 # -
 
-df_firms = pd.melt(df_firms_results, id_vars=['LABEL', 'N_WORDS', ], value_vars=['MEAN', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN'], var_name='measure', value_name='value')
+# Normalize N_EXACT_NORM_MEAN2 (divide by 2 so value range is [0, 1])
+df_prox['N_EXACT_NORM_MEAN2_NORM'] = df_prox.N_EXACT_NORM_MEAN2/2
+
+df_firms = pd.melt(df_prox, id_vars=['LABEL', 'N_WORDS', ], value_vars=['MEAN', 'MEAN2', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN', 'N_EXACT_NORM_MEAN2', 'N_EXACT_NORM_MEAN2_NORM'], var_name='measure', value_name='value')
 
 sns.catplot(
-    data=df_firms,
+    data=df_firms, 
     x="N_WORDS", y="value",
     hue="LABEL",  col="measure", kind="box",
-    col_wrap=1, sharey=False, sharex=True, height=6, aspect=2
+    col_wrap=2, sharey=False, sharex=True, height=6, aspect=1.5
 )
 
 # +
@@ -516,8 +476,8 @@ fig, axes = plt.subplots(figsize=(15,20), ncols=2, nrows=4)
 y02s = ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']
 
 for y02, ax in zip(y02s, axes.flat):
-    df_temp = df_firms_results.loc[df_firms_results.Y02 == y02].copy()
-    df_temp["TECH_PROX"] = df_temp.N_EXACT_NORM_MEAN/2
+    df_temp = df_prox.loc[df_prox.Y02 == y02].copy()
+    df_temp["TECH_PROX"] = df_temp.N_EXACT_NORM_MEAN2/2
     palette = {'nasdaq': 'lightgrey', 'cleantech': greens[len(greens)-1]}
     ax = sns.boxplot(x="N_WORDS", y="TECH_PROX", hue="LABEL",
                  data=df_temp, linewidth=1, ax=ax, palette=palette)

@@ -135,6 +135,8 @@ def string_to_lemma(doc, exclude_pos = ['PUNCT', 'NUM', 'X'], exclude_stopwords 
 
 # Create a color map for the distinct cleantech classes
 from matplotlib import cm
+import seaborn as sns
+import numpy as np
 temp = sns.cubehelix_palette(start=2, rot=0, dark=0.35, light=1, reverse=False, as_cmap=True).colors
 ind = np.round(np.linspace(temp.shape[0]/3, temp.shape[0]-1, 8)).astype(int)
 greens = temp[ind]
