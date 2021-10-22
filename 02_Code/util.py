@@ -143,3 +143,22 @@ greens = temp[ind]
 greens_dict = {}
 for index, y02 in enumerate(['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']):
     greens_dict[y02] = greens[index]
+
+# Function to read pickle consisting of lists
+import pickle as pkl
+def read_cache(cache_path):
+    """Function which returns a list of lists
+    
+    Input: path to pickle file
+        
+    Output: list of lists
+    
+    """
+    data = []
+    with open(cache_path, 'rb') as f:
+        try:
+            while True:
+                data.extend(pkl.load(f))
+        except EOFError:
+            pass
+    return(data)

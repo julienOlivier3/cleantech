@@ -168,17 +168,7 @@ for start in tqdm(range(0, n, chunk_size)):
     with open(here('02_Code/.pycache/patent_translations.pkl'), 'ab+') as f:
         f.write(pkl.dumps(patent_translations))
 
-
-def read_cache(cache_path):
-    data = []
-    with open(cache_path, 'rb') as f:
-        try:
-            while True:
-                data.extend(pkl.load(f))
-        except EOFError:
-            pass
-    return(data)
-
+from util import read_cache
 
 temp = read_cache(here('02_Code/.pycache/patent_translations.pkl'))
 

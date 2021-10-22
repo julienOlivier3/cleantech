@@ -132,26 +132,56 @@ len(df_test)
 df_test.head(3)
 
 
-def proximity_testing(df_test, embedding_type):
+def proximity_testing(df_test, embedding_type, text_type='LEMMAS'):
+    """Function which returns a list of lemmatized words.
+    
+    Input: pd.DataFrame including at least
+        - APPLN_ID: unique patent identifier
+        - Y02: identifier whether patent is labeled as cleantech
+        - Y02_imp: float indicating importance of clean technologies in the patent
+        - ABSTRACT: patent abstract
+        - LEMMAS: list including the lemmas from the patent abstract
+        - CPC: list including the patent's CPC labels
+    
+    Arguments:
+        - embedding_type: string indicating which form of word embeddings shall be created
+            - 'we': static (unweighted) word embeddings
+            - 'we_avg': static (weighted - for technology embedding) word embeddings
+            - 'bert': contextualized word embeddings using 'paraphrase-MiniLM-L6-v2' model
+        - text_type: string indicating whether raw patent abstracts or pre-processed lemmas shall be used for embedding
+            - 'ABSTRACT': raw patent abstracts
+            - 'LEMMAS: lemmatized abstracts (default)
+        
+    Output: pd.DataFrame including
+        - APPLN_ID: (see Input)
+        - Y02: identifier indicating with regard to which technology space proximity of patent has been calculated
+        - LABEL: identifier whether patent is labeled as cleantech
+        - CPC: list of patent's CPC classes
+        - Y02_IMPORTANCE: Y02_imp (see Input)
+        - N_WORDS: size of semantic technology space
+        - MEAN_xx: technological proximity
+    
+    """
+    
     stoplist = ['and/or', '/h', 't1', 'dc', 'mm', 'wt', '113a', '115a', 'ofdm', 'lpwa']
     
     temp = []
     
     for index, row in tqdm(df_test.iterrows(), total=df_test.shape[0], position=0, leave=True):
-    #for index in tqdm(range(df_test.shape[0]), position=0, leave=True):
-        #row = df_test.iloc[index]
-        clean_document = row.ABSTRACT.split()
+        # Define textual input for proximity to technology space shall be calculated
+        if text_type='LEMMAS':
+            clean_document = row.LEMMAS
+        if text_type='ABSTRACT':
+            clean_document = row.ABSTRACT.split()
         # Remove some additional stopwords
         clean_document = [token for token in clean_document if token not in stoplist]
+        
         label = row.Y02
         importance = row.Y02_imp
         ind = row.APPLN_ID
 
-        clean_document = row.LEMMAS
-        # Remove some additional stopwords
-        clean_document = [token for token in clean_document if token not in stoplist]
         # Remove Y04 and Y10 tag
-        labels = [cpc for cpc in row.CPC if cpc not in ['Y04', 'Y10']]
+        cpcs = [cpc for cpc in row.CPC if cpc not in ['Y04', 'Y10']]
 
         # Create word embedding matrix
         patent_embedding = word_list_to_embedding_array(clean_document, embedding_type=embedding_type)
@@ -177,10 +207,9 @@ def proximity_testing(df_test, embedding_type):
                     n_exact = (similarity == 1).sum()
                     n_exact_norm = n_exact/len_patent_embedding
 
-                    temp.append([ind, label, y02, importance, n_words, similarity_mean, similarity_mean2, n_exact, n_exact_norm, n_exact_norm+similarity_mean, n_exact_norm+similarity_mean2])
-                    df_prox = pd.DataFrame(temp, columns=['APPLN_ID', 'LABEL', 'Y02', 'Y02_IMPORTANCE', 'N_WORDS', 'MEAN', 'MEAN2', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN', 'N_EXACT_NORM_MEAN2'])
+                    temp.append([ind, y02, label, cpcs, importance, n_words, similarity_mean, similarity_mean2, n_exact, n_exact_norm, n_exact_norm+similarity_mean, n_exact_norm+similarity_mean2])
                     
-                
+                                   
                 if embedding_type == 'we_avg':
                     technology_embedding = get_semantic_vectors(y02, n_words, embedding_type=embedding_type)
                     
@@ -189,10 +218,9 @@ def proximity_testing(df_test, embedding_type):
                     if similarity < 0:
                         similarity = 0
                     
-                    temp.append([ind, label, y02, importance, n_words, similarity])
-                    df_prox = pd.DataFrame(temp, columns=['APPLN_ID', 'LABEL', 'Y02', 'Y02_IMPORTANCE', 'N_WORDS', 'MEAN_WAVG'])
-
-                
+                    temp.append([ind, y02, label, cpcs, importance, n_words, similarity])
+                    
+               
                 if embedding_type == 'bert':
                     technology_embedding = get_semantic_vectors(y02, n_words, embedding_type=embedding_type)
                     
@@ -201,80 +229,59 @@ def proximity_testing(df_test, embedding_type):
                     if similarity < 0:
                         similarity = 0
                     
-                    temp.append([ind, label, y02, importance, n_words, similarity])
-                    df_prox = pd.DataFrame(temp, columns=['APPLN_ID', 'LABEL', 'Y02', 'Y02_IMPORTANCE', 'N_WORDS', 'MEAN_BERT'])
-    
+                    temp.append([ind, y02, label, cpcs, importance, n_words, similarity])
+                    
+        
+        # Convert list 'temp' to final data frame
+        if embedding_type == 'we':
+            colnames = ['APPLN_ID', 'Y02', 'LABEL', 'CPC', 'Y02_IMPORTANCE', 'N_WORDS', 'MEAN', 'MEAN2', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN', 'N_EXACT_NORM_MEAN2']
+        if embedding_type == 'we_avg':
+            colnames = ['APPLN_ID', 'Y02', 'LABEL', 'CPC', 'Y02_IMPORTANCE', 'N_WORDS', 'MEAN_WAVG']
+        if embedding_type == 'bert':
+            colnames = ['APPLN_ID', 'Y02', 'LABEL', 'CPC', 'Y02_IMPORTANCE', 'N_WORDS', 'MEAN_BERT']
+
+        df_prox = pd.DataFrame(temp, columns=colnames)
+            
+            
     return(df_prox)
 
 
-#df_wavg = proximity_testing(df_test, embedding_type='we_avg')
+# Calculate technological proximity based on static word embeddings
+# MEAN: mean over similarity between all word combinations between X_t and Y_c
+# MEAN2: similarity between unweighted average of X_t and unweighted average of Y_c 
+df_wavg = proximity_testing(df_test, embedding_type='we')
+
+# Calculate technological proximity based on static word embeddings
+# MEAN_AVG: similarity between weighted average of X_t (word probabilities as weights) and unweighted average of Y_c 
+df_wavg = proximity_testing(df_test, embedding_type='we_avg')
+
+# Calculate technological proximity based on contextual word embeddings
+# MEAN_BERT: similarity between weighted average of X_t (word probabilities as weights) and unweighted average of Y_c 
 df_bert = proximity_testing(df_test, embedding_type='bert')
 
-# +
-stoplist = ['and/or', '/h', 't1', 'dc', 'mm', 'wt', '113a', '115a', 'ofdm', 'lpwa']
-temp = []
-for index, row in tqdm(df_test.iterrows(), total=df_test.shape[0], position=0, leave=True):
-#for index in tqdm(range(df_test.shape[0]), position=0, leave=True):
-    #row = df_test.iloc[index]
-    clean_document = row.ABSTRACT.split()
-    # Remove some additional stopwords
-    clean_document = [token for token in clean_document if token not in stoplist]
-    label = row.Y02
-    importance = row.Y02_imp
-    ind = row.APPLN_ID
+df_prox.shape, df_bert.shape
 
-    clean_document = row.LEMMAS
-    # Remove some additional stopwords
-    clean_document = [token for token in clean_document if token not in stoplist]
-    # Remove Y04 and Y10 tag
-    labels = [cpc for cpc in row.CPC if cpc not in ['Y04', 'Y10']]
-        
-    # Create word embedding matrix
-    patent_embedding = word_list_to_embedding_array(clean_document)
-    len_patent_embedding = len(patent_embedding)
-    
-    # Calculate proximity to all clean technology semantic spaces
-    for y02 in ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']:
-        for n_words in [10, 20, 30, 40, 50, 100, 250, 500, 1000, 2000, 3000, 4000]:
-            for embedding_type in ['we', 'we_avg', 'bert']:
-                if embedding_type == 'we':
-                    technology_embedding = get_semantic_vectors(y02, n_words)
+df_prox = pd.read_csv(here(r'.\03_Model\temp\df_validation_patents.txt'), sep='\t', encoding='utf-8')
 
-                    # Calculate cosine similarity between all permutations of patent vector space and technology semantic vector space
-                    similarity = np.round_(cosine_similarity(patent_embedding, technology_embedding).flatten(), decimals=5)
-                    similarity[similarity < 0] = 0
-                    similarity_mean = similarity.mean()
-                    # Calculate mean embedding and then cosine similarity between both document embeddings
-                    similarity_mean2 = cosine_similarity_vectors(patent_embedding.mean(axis=0), technology_embedding.mean(axis=0))
-                    if similarity_mean2 < 0:
-                        similarity_mean2 = 0
+df_prox['APPLN_ID'] = df_prox.APPLN_ID.astype(str)
 
-                    # Calculate number of exact word matches
-                    n_exact = (similarity == 1).sum()
-                    n_exact_norm = n_exact/len_patent_embedding
+df_prox = df_prox.merge(df_bert[['APPLN_ID', 'Y02', 'N_WORDS', 'MEAN_BERT']], how='left', on=['APPLN_ID', 'Y02', 'N_WORDS'])
 
-                    temp.append([ind, label, y02, importance, n_words, similarity_mean, similarity_mean2, n_exact, n_exact_norm, n_exact_norm+similarity_mean, n_exact_norm+similarity_mean2])
-    #if index==5:
-    #    break
-            
-df_prox = pd.DataFrame(temp, columns=['APPLN_ID', 'LABEL', 'Y02', 'Y02_IMPORTANCE', 'N_WORDS', 'MEAN', 'MEAN2', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN', 'N_EXACT_NORM_MEAN2'])
-# -
-
-df_prox
+df_prox.shape
 
 # Save to disk
-df_prox.to_csv(here(r'.\03_Model\temp\df_validation_patents.txt'), sep='\t', encoding='utf-8')
+df_prox.to_csv(here(r'.\03_Model\temp\df_validation_patents.txt'), sep='\t', encoding='utf-8', index=False)
 
 # + [markdown] tags=[]
 # ## Some visualizations 
 # -
 
 # Load testing file
-df_test_results = pd.read_csv(here(r'.\03_Model\temp\df_validation_patents.txt'), sep='\t', encoding='utf-8', index_col='Unnamed: 0')
+df_test_results = pd.read_csv(here(r'.\03_Model\temp\df_validation_patents.txt'), sep='\t', encoding='utf-8')
 
 df_test_results.head(3)
 
-df_test_results_l = pd.melt(df_test_results, id_vars=['LABEL', 'N_WORDS', ], value_vars=['MEAN', 'MEAN2', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN', 'N_EXACT_NORM_MEAN2'], var_name='measure', value_name='value')
+df_test_results_l = pd.melt(df_test_results, id_vars=['LABEL', 'N_WORDS', ], value_vars=['MEAN', 'MEAN2', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN', 'N_EXACT_NORM_MEAN2', 'MEAN_BERT'], var_name='measure', value_name='value')
 
 df_test_results_l
 
@@ -301,7 +308,70 @@ df_test_results['Y02_true'] = df_test_results.Y02_dict.apply(lambda x: list(x.ke
 # Analyze how proximity differs compared to non-cleantech patents.
 
 # Check if color map is loaded
+from util import greens_dict
 greens_dict
+
+# +
+fig, axes = plt.subplots(figsize=(15,20), ncols=2, nrows=4)
+
+y02s = ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']
+
+for y02, ax in zip(y02s, axes.flat):
+    df_y02 = df_test_results.loc[df_test_results.Y02_true.apply(lambda x: y02 in x) & (df_test_results.Y02 == y02)].copy()
+    df_y02['LABEL'] = y02
+    N_y02 = len(df_y02['APPLN_ID'].drop_duplicates())
+    df_nony02 = df_test_results.loc[(df_test_results.LABEL == 0) & (df_test_results.Y02 == y02)].copy()
+    df_nony02['LABEL'] = 'non-cleantech'
+    N_nony02 = len(df_nony02['APPLN_ID'].drop_duplicates())
+    df_temp = pd.concat([df_y02, df_nony02])
+    df_temp["TECH_PROX"] = df_temp.MEAN_BERT
+    palette = {'non-cleantech': 'lightgrey', y02: greens_dict[y02]}
+    ax = sns.boxplot(x="N_WORDS", y="TECH_PROX", hue="LABEL",
+                     data=df_temp, linewidth=1, ax=ax, palette=palette
+                     #,showmeans=True, meanprops={"marker":"o",
+                     #                           "markerfacecolor":"white", 
+                     #                           "markeredgecolor":"black",
+                     #                           "markersize":"5"}
+                    )
+    ax.set_title('Proximity to ' + y02 + ' (based on $N_{' + y02 + '}$ = ' + str(N_y02) + ', ' + '$N_{non-y02}$ = ' + str(N_nony02) + ')')
+    ax.set_xlabel('Size of semantic technology space (number of words)')
+    ax.set_ylabel('Technological proximity')
+    ax.legend_.set_title('Patent class')
+plt.suptitle("Technological proximity based on out-of sample patents", size=16)
+fig.tight_layout()
+fig.subplots_adjust(top=0.95)
+plt.show()
+
+# +
+fig, axes = plt.subplots(figsize=(15,20), ncols=2, nrows=4)
+
+y02s = ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']
+
+for y02, ax in zip(y02s, axes.flat):
+    df_y02 = df_test_results.loc[df_test_results.Y02_true.apply(lambda x: y02 in x) & (df_test_results.Y02 == y02)].copy()
+    df_y02['LABEL'] = y02
+    N_y02 = len(df_y02['APPLN_ID'].drop_duplicates())
+    df_nony02 = df_test_results.loc[(df_test_results.LABEL == 0) & (df_test_results.Y02 == y02)].copy()
+    df_nony02['LABEL'] = 'non-cleantech'
+    N_nony02 = len(df_nony02['APPLN_ID'].drop_duplicates())
+    df_temp = pd.concat([df_y02, df_nony02])
+    df_temp["TECH_PROX"] = (df_temp.N_EXACT_NORM + df_temp.MEAN_BERT)/2
+    palette = {'non-cleantech': 'lightgrey', y02: greens_dict[y02]}
+    ax = sns.boxplot(x="N_WORDS", y="TECH_PROX", hue="LABEL",
+                     data=df_temp, linewidth=1, ax=ax, palette=palette
+                     #,showmeans=True, meanprops={"marker":"o",
+                     #                           "markerfacecolor":"white", 
+                     #                           "markeredgecolor":"black",
+                     #                           "markersize":"5"}
+                    )
+    ax.set_title('Proximity to ' + y02 + ' (based on $N_{' + y02 + '}$ = ' + str(N_y02) + ', ' + '$N_{non-y02}$ = ' + str(N_nony02) + ')')
+    ax.set_xlabel('Size of semantic technology space (number of words)')
+    ax.set_ylabel('Technological proximity')
+    ax.legend_.set_title('Patent class')
+plt.suptitle("Technological proximity based on out-of sample patents", size=16)
+fig.tight_layout()
+fig.subplots_adjust(top=0.95)
+plt.show()
 
 # +
 fig, axes = plt.subplots(figsize=(15,20), ncols=2, nrows=4)
@@ -350,7 +420,7 @@ for y02, ax in zip(y02s, axes.flat):
     df_othery02['LABEL'] = 'other cleantech'
     N_othery02 = len(df_othery02['APPLN_ID'].drop_duplicates())
     df_temp = pd.concat([df_y02, df_othery02])
-    df_temp["TECH_PROX"] = df_temp.N_EXACT_NORM_MEAN/2
+    df_temp["TECH_PROX"] = df_temp.MEAN_BERT
     palette = {'other cleantech': 'lightgrey', y02: greens_dict[y02]}
     ax = sns.boxplot(x="N_WORDS", y="TECH_PROX", hue="LABEL",
                  data=df_temp, linewidth=1, ax=ax, palette=palette)
@@ -389,7 +459,7 @@ def create_joint_string(x, columns = ['SHORT_DESCRIPTION', 'LONG_DESCRIPTION', '
 
 
 # +
-# Read test data of cleantech and nasdaq firms
+# Read test data of cleantech, nasdaq and non-tech firms
 df_cleantech = pd.read_csv(here('01_Data/02_Firms/df_cleantech_firms.txt'), sep='\t', encoding='utf-8')
 df_cleantech['DESCRIPTION'] = df_cleantech.apply(lambda x: create_joint_string(x), axis=1)
 df_cleantech = df_cleantech[['NAME', 'DESCRIPTION']]
@@ -400,8 +470,13 @@ df_nasdaq = df_nasdaq[df_nasdaq.BUSINESS_SUMMARY.notnull()]
 df_nasdaq = df_nasdaq[['NAME', 'BUSINESS_SUMMARY']].rename(columns={'BUSINESS_SUMMARY': 'DESCRIPTION'})
 df_nasdaq['LABEL'] = 'nasdaq'
 
-# Combine both firm samples in one df
-df = pd.concat([df_cleantech, df_nasdaq]).reset_index(drop=True)
+# THIS REQUIRES UPDATING ONCE ALL GERMAN COMPANY DESCRIPTIONS HAVE BEEN TRANSLATED
+from util import read_cache
+df_nontech = pd.DataFrame(read_cache(here(r'02_Code/.pycache/company_desc_translations.pkl')), columns=['NAME', 'DESCRIPTION'])
+df_nontech['LABEL'] = 'non-tech'
+
+# Combine all firm samples in one df
+df = pd.concat([df_cleantech, df_nasdaq, df_nontech]).reset_index(drop=True)
 
 # Calculate character length of company descriptions
 df['LEN'] = df.DESCRIPTION.apply(len)
@@ -411,12 +486,13 @@ df.reset_index(drop=True, inplace=True)
 
 # Analyze length of company descriptions between cleantech and NASDAQ firms.
 
-sns.histplot(data=df, x="LEN", hue="LABEL", bins=30)
+sns.histplot(data=df, x="LEN", hue="LABEL", bins=30, stat='count')
 
 # Careful: length texts is not equally distributed between cleantech firms and NASDAQ firms!
 
 # Conduct lemmatization
-df['LEMMA'] = df.DESCRIPTION.apply(lambda x: [lemma.lower() for lemma in string_to_lemma(x)])
+tqdm.pandas()
+df['LEMMA'] = df.DESCRIPTION.progress_apply(lambda x: [lemma.lower() for lemma in string_to_lemma(x)])
 
 df.head(3)
 
@@ -430,38 +506,60 @@ for index, row in tqdm(df.iterrows(), total=df.shape[0], position=0, leave=True)
     ind = row.NAME
         
     # Create word embedding matrix
-    patent_embedding = word_list_to_embedding_array(clean_document)
+    patent_embedding = word_list_to_embedding_array(clean_document, embedding_type='bert')
     len_patent_embedding = len(patent_embedding)
+    if len_patent_embedding != 0:
     
-    # Calculate proximity to all clean technology semantic spaces
-    for y02 in ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']:
-        for n_words in [10, 20, 30, 40, 50, 100, 250, 500, 1000, 2000, 3000, 4000]:
-            technology_embedding = get_semantic_vectors(y02, n_words)
-            
-            # Calculate cosine similarity between all permutations of patent vector space and technology semantic vector space
-            similarity = np.round_(cosine_similarity(patent_embedding, technology_embedding).flatten(), decimals=5)
-            similarity[similarity < 0] = 0
-            similarity_mean = similarity.mean()
-            # Calculate mean embedding and then cosine similarity between both document embeddings
-            similarity_mean2 = cosine_similarity_vectors(patent_embedding.mean(axis=0), technology_embedding.mean(axis=0))
-            if similarity_mean2 < 0:
-                similarity_mean2 = 0
-        
-            # Calculate number of exact word matches
-            n_exact = (similarity == 1).sum()
-            n_exact_norm = n_exact/len_patent_embedding
-        
-            temp.append([ind, label, y02, n_words, similarity_mean, similarity_mean2, n_exact, n_exact_norm, n_exact_norm+similarity_mean, n_exact_norm+similarity_mean2])
+        # Calculate proximity to all clean technology semantic spaces
+        for y02 in ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']:
+            for n_words in [10, 20, 30, 40, 50, 100, 250, 500, 1000, 2000, 3000, 4000]:
+#                technology_embedding = get_semantic_vectors(y02, n_words, embedding_type='we')
+
+#                 # Calculate cosine similarity between all permutations of patent vector space and technology semantic vector space
+#                 similarity = np.round_(cosine_similarity(patent_embedding, technology_embedding).flatten(), decimals=5)
+#                 similarity[similarity < 0] = 0
+#                 similarity_mean = similarity.mean()
+#                 # Calculate mean embedding and then cosine similarity between both document embeddings
+#                 similarity_mean2 = cosine_similarity_vectors(patent_embedding.mean(axis=0), technology_embedding.mean(axis=0))
+#                 if similarity_mean2 < 0:
+#                     similarity_mean2 = 0
+
+#                 # Calculate number of exact word matches
+#                 n_exact = (similarity == 1).sum()
+#                 n_exact_norm = n_exact/len_patent_embedding
+
+#                 temp.append([ind, label, y02, n_words, similarity_mean, similarity_mean2, n_exact, n_exact_norm, n_exact_norm+similarity_mean, n_exact_norm+similarity_mean2])
+
+                # BERT embeddings
+                technology_embedding = get_semantic_vectors(y02, n_words, embedding_type='bert')
+
+                # Calculate cosine similarity
+                similarity = cosine_similarity_vectors(patent_embedding, technology_embedding)
+                if similarity < 0:
+                    similarity = 0
+                    
+                temp.append([ind, label, y02, n_words, similarity])
+
+                
+    else:
+        continue
     #if index==5:
     #    break
             
-df_prox = pd.DataFrame(temp, columns=['APPLN_ID', 'LABEL', 'Y02', 'N_WORDS', 'MEAN', 'MEAN2', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN', 'N_EXACT_NORM_MEAN2'])
+df_prox = pd.DataFrame(temp, columns=['APPLN_ID', 'LABEL', 'Y02', 'N_WORDS', 'MEAN' 
+                                      #,'MEAN2', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN', 'N_EXACT_NORM_MEAN2'
+                                     ])
+
+# +
+#df_prox_sample.merge(df_prox[['APPLN_ID', 'Y02', 'N_WORDS', 'MEAN_BERT']], how='left', on=['APPLN_ID', 'Y02', 'N_WORDS'])
 # -
 
 # Normalize N_EXACT_NORM_MEAN2 (divide by 2 so value range is [0, 1])
 df_prox['N_EXACT_NORM_MEAN2_NORM'] = df_prox.N_EXACT_NORM_MEAN2/2
 
-df_firms = pd.melt(df_prox, id_vars=['LABEL', 'N_WORDS', ], value_vars=['MEAN', 'MEAN2', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN', 'N_EXACT_NORM_MEAN2', 'N_EXACT_NORM_MEAN2_NORM'], var_name='measure', value_name='value')
+df_firms = pd.melt(df_prox, id_vars=['LABEL', 'N_WORDS', ], value_vars=['MEAN', 
+                                                                        #'MEAN2', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN', 'N_EXACT_NORM_MEAN2', 'N_EXACT_NORM_MEAN2_NORM'
+                                                                       ], var_name='measure', value_name='value')
 
 sns.catplot(
     data=df_firms, 
@@ -477,15 +575,15 @@ y02s = ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']
 
 for y02, ax in zip(y02s, axes.flat):
     df_temp = df_prox.loc[df_prox.Y02 == y02].copy()
-    df_temp["TECH_PROX"] = df_temp.N_EXACT_NORM_MEAN2/2
-    palette = {'nasdaq': 'lightgrey', 'cleantech': greens[len(greens)-1]}
+    df_temp["TECH_PROX"] = df_temp.MEAN
+    palette = {'nasdaq': 'lightgrey', 'non-tech': 'yellow', 'cleantech': greens[len(greens)-1]}
     ax = sns.boxplot(x="N_WORDS", y="TECH_PROX", hue="LABEL",
                  data=df_temp, linewidth=1, ax=ax, palette=palette)
     ax.set_title('Proximity to ' + y02)
     ax.set_xlabel('Size of semantic technology space (number of words)')
     ax.set_ylabel('Technological proximity')
     ax.legend_.set_title('Company type')
-    new_labels = ['Cleantech-100', 'NASDAQ-100']
+    new_labels = ['Cleantech-100', 'NASDAQ-100', 'Lowtech sample']
     for t, l in zip(ax.legend_.texts, new_labels):
         t.set_text(l)
 plt.suptitle("Technological proximity based on company descriptions", size=16)
