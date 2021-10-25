@@ -701,6 +701,7 @@ def cosine_similarity_vectors(v1, v2):
 from sentence_transformers import SentenceTransformer
 from sentence_transformers import util
 model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+model._first_module().max_seq_length = 510 # increase maximum sequence length which is 128 by default
 
 #Sentences are encoded by calling model.encode()
 sentence_embeddings1 = model.encode(' '.join(df_topic_words.loc[df_topic_words.Topic=='Y02C'].head(10).Word.values))
@@ -713,7 +714,7 @@ cosine_similarity_vectors(sentence_embeddings1, sentence_embeddings2)
 # Now we want to create the SBERT embeddings for different $Q$ and all technology classes.
 
 tech_classes = set(df_topic_words.Topic.values)
-n_words = [10, 20, 30, 40, 50, 100, 250, 500, 1000, 2000, 3000, 4000]
+n_words = [10, 20, 30, 40, 50, 75, 100, 200, 250, 300, 400, 500, 1000, 2000, 3000, 4000] # here some more description sizes are added since sentence transformers can embedd 512 tokens at most
 semantic_vectors_bert = {}
 for tech_class in tqdm(tech_classes):
     semantic_vectors_bert[tech_class] = {}
@@ -723,8 +724,6 @@ for tech_class in tqdm(tech_classes):
         semantic_vectors_bert[tech_class][n_word] = embedding
         #if n_word>20:
         #    break
-
-semantic_vectors_bert['Y02A'][10]
 
 # Save semantic vectors to disk
 with open(here(r'.\03_Model\temp\semantic_vectors_bert.pkl'), 'wb') as f:
