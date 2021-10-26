@@ -19,11 +19,12 @@ from tqdm import tqdm
 import pickle as pkl
 from pyprojroot import here
 from util import translation_handler
+import config
 
 # # Process company descriptions
 
 # Read raw company descriptions
-with open(r"Q:\Meine Bibliotheken\Research\Green_startups\02_Data\06_CompanyDescriptions\texte_taetigkeit.LST", "r") as f:
+with open(config.PATH_TO_COMPANY_DESCRIPTIONS + r"\texte_taetigkeit.LST", "r") as f:
     temp = f.read().splitlines()
 
 # Transfer into dataframe
@@ -36,8 +37,11 @@ df_desc['DESC_de'] = df_desc.DESC_de.apply(lambda x: re.sub('\s{2,}', ' ', x)) #
 
 df_desc.DESC_de.sample(10).values
 
-df_desc = df_desc.loc[df_desc.DESC_de.apply(lambda x: 'Kosmetik' in x)]
 
+# +
+# Create a sample of non-tech firms
+#df_desc = df_desc.loc[df_desc.DESC_de.apply(lambda x: 'Kosmetik' in x)]
+# -
 
 # ## Translation 
 
@@ -58,4 +62,14 @@ for start in tqdm(range(0, n, chunk_size)):
 
 from util import read_cache
 
-df_desc = pd.DataFrame(read_cache(here(r'02_Code/.pycache/company_desc_translations.pkl')), columns=['CREFO', 'DESC_en'])
+df_desc_en1 = pd.DataFrame(read_cache(here(r'02_Code/.pycache/company_desc_translations1.pkl')), columns=['CREFO', 'DESC_en'])
+df_desc_en2 = pd.DataFrame(read_cache(here(r'02_Code/.pycache/company_desc_translations2.pkl')), columns=['CREFO', 'DESC_en'])
+
+df_desc_en = pd.concat([df_desc_en1, df_desc_en2])
+
+df_desc_en.shape, df_desc.shape
+
+df_desc = df_desc.merge(df_desc_en, how="left", on="CREFO")
+
+# Write to disk
+df_desc.to_csv(here(r'01_Data/02_Firms/02_Company_Descriptions/df_desc.txt'), sep='\t', encoding='utf-8', index=False)
