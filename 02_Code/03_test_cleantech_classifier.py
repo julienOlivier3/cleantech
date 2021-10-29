@@ -283,21 +283,18 @@ df_prox.to_csv(here(r'.\03_Model\temp\df_validation_patents.txt'), sep='\t', enc
 # -
 
 # Read from disk
-df_prox = pd.read_csv(here(r'.\03_Model\temp\df_validation_patents.txt'), sep='\t', encoding='utf-8')
+#df_prox = pd.read_csv(here(r'.\03_Model\temp\df_validation_patents.txt'), sep='\t', encoding='utf-8')
+df_prox = pd.read_pickle(here(r'.\03_Model\temp\df_validation_patents_bert.pkl'))
 
 df_prox.head(3)
 
-# Load testing file
-df_test_results = pd.read_csv(here(r'.\03_Model\temp\df_validation_patents.txt'), sep='\t', encoding='utf-8')
+df_prox_l = pd.melt(df_prox, id_vars=['LABEL', 'N_WORDS'], value_vars=[#'MEAN', 'MEAN2', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN', 'N_EXACT_NORM_MEAN2', 
+    'MEAN_BERT'], var_name='measure', value_name='value')
 
-df_test_results.head(3)
-
-df_test_results_l = pd.melt(df_test_results, id_vars=['LABEL', 'N_WORDS', ], value_vars=['MEAN', 'MEAN2', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN', 'N_EXACT_NORM_MEAN2', 'MEAN_BERT'], var_name='measure', value_name='value')
-
-df_test_results_l
+df_prox_l
 
 sns.catplot(
-    data=df_test_results_l, 
+    data=df_prox_l, 
     x="N_WORDS", y="value",
     hue="LABEL",  col="measure", kind="box",
     col_wrap=2, sharey=False, sharex=True, height=6, aspect=1.5
@@ -312,9 +309,10 @@ sns.catplot(
 # Add Y02_dict to test data
 #df_test = df_test_results.merge(df_test[['APPLN_ID', 'Y02_dict']], how='left', left_on='APPLN_ID', right_on='APPLN_ID')
 df_test['APPLN_ID'] = df_test.APPLN_ID.astype(np.int64)
-df_test_results = df_test_results.merge(df_test[['APPLN_ID', 'Y02_dict']], how='left', left_on='APPLN_ID', right_on='APPLN_ID')
+df_prox['APPLN_ID'] = df_prox.APPLN_ID.astype(np.int64)
+df_prox = df_prox.merge(df_test[['APPLN_ID', 'Y02_dict']], how='left', left_on='APPLN_ID', right_on='APPLN_ID')
 
-df_test_results['Y02_true'] = df_test_results.Y02_dict.apply(lambda x: list(x.keys()))
+df_prox['Y02_true'] = df_prox.Y02_dict.apply(lambda x: list(x.keys()))
 
 # Analyze how proximity differs compared to non-cleantech patents.
 
@@ -322,16 +320,22 @@ df_test_results['Y02_true'] = df_test_results.Y02_dict.apply(lambda x: list(x.ke
 from util import greens_dict
 greens_dict
 
+# Analyze how proximity differs compared to cleantech patents from other Y02 classes.
+
+# 1. Contextualized word embeddings
+
+# 1.1. against non-cleantech patents
+
 # +
 fig, axes = plt.subplots(figsize=(15,20), ncols=2, nrows=4)
 
 y02s = ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']
 
 for y02, ax in zip(y02s, axes.flat):
-    df_y02 = df_test_results.loc[df_test_results.Y02_true.apply(lambda x: y02 in x) & (df_test_results.Y02 == y02)].copy()
+    df_y02 = df_prox.loc[df_prox.Y02_true.apply(lambda x: y02 in x) & (df_prox.Y02 == y02)].copy()
     df_y02['LABEL'] = y02
     N_y02 = len(df_y02['APPLN_ID'].drop_duplicates())
-    df_nony02 = df_test_results.loc[(df_test_results.LABEL == 0) & (df_test_results.Y02 == y02)].copy()
+    df_nony02 = df_prox.loc[(df_prox.LABEL == 0) & (df_prox.Y02 == y02)].copy()
     df_nony02['LABEL'] = 'non-cleantech'
     N_nony02 = len(df_nony02['APPLN_ID'].drop_duplicates())
     df_temp = pd.concat([df_y02, df_nony02])
@@ -352,6 +356,38 @@ plt.suptitle("Technological proximity based on out-of sample patents", size=16)
 fig.tight_layout()
 fig.subplots_adjust(top=0.95)
 plt.show()
+# -
+
+# 1.2. other cleantech patents
+
+# +
+fig, axes = plt.subplots(figsize=(15,20), ncols=2, nrows=4)
+
+y02s = ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']
+
+for y02, ax in zip(y02s, axes.flat):
+    df_y02 = df_prox.loc[df_prox.Y02_true.apply(lambda x: y02 in x) & (df_prox.Y02 == y02)].copy()
+    df_y02['LABEL'] = y02
+    N_y02 = len(df_y02['APPLN_ID'].drop_duplicates())
+    df_othery02 = df_prox.loc[df_prox.Y02_true.apply(lambda x: (y02 not in x) & (len(x)>0)) & (df_prox.Y02 == y02)].copy()
+    df_othery02['LABEL'] = 'other cleantech'
+    N_othery02 = len(df_othery02['APPLN_ID'].drop_duplicates())
+    df_temp = pd.concat([df_y02, df_othery02])
+    df_temp["TECH_PROX"] = df_temp.MEAN_BERT
+    palette = {'other cleantech': 'lightgrey', y02: greens_dict[y02]}
+    ax = sns.boxplot(x="N_WORDS", y="TECH_PROX", hue="LABEL",
+                 data=df_temp, linewidth=1, ax=ax, palette=palette)
+    ax.set_title('Proximity to ' + y02 + ' (based on $N_{' + y02 + '}$ = ' + str(N_y02) + ', ' + '$N_{other-y02}$ = ' + str(N_othery02) + ')')
+    ax.set_xlabel('Size of semantic technology space (number of words)')
+    ax.set_ylabel('Technological proximity')
+    ax.legend_.set_title('Patent class')
+plt.suptitle("Technological proximity based on out-of sample patents", size=16)
+fig.tight_layout()
+fig.subplots_adjust(top=0.95)
+plt.show()
+# -
+
+# 2. (Contextualized word embeddings + exact matches)/2
 
 # +
 fig, axes = plt.subplots(figsize=(15,20), ncols=2, nrows=4)
@@ -383,6 +419,9 @@ plt.suptitle("Technological proximity based on out-of sample patents", size=16)
 fig.tight_layout()
 fig.subplots_adjust(top=0.95)
 plt.show()
+# -
+
+# 3. (Static word embeddings + exact matches)/2
 
 # +
 fig, axes = plt.subplots(figsize=(15,20), ncols=2, nrows=4)
@@ -416,34 +455,7 @@ fig.subplots_adjust(top=0.95)
 plt.show()
 # -
 
-# Analyze how proximity differs compared to cleantech patents from other Y02 classes.
-
-# +
-fig, axes = plt.subplots(figsize=(15,20), ncols=2, nrows=4)
-
-y02s = ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']
-
-for y02, ax in zip(y02s, axes.flat):
-    df_y02 = df_test_results.loc[df_test_results.Y02_true.apply(lambda x: y02 in x) & (df_test_results.Y02 == y02)].copy()
-    df_y02['LABEL'] = y02
-    N_y02 = len(df_y02['APPLN_ID'].drop_duplicates())
-    df_othery02 = df_test_results.loc[df_test_results.Y02_true.apply(lambda x: (y02 not in x) & (len(x)>0)) & (df_test_results.Y02 == y02)].copy()
-    df_othery02['LABEL'] = 'other cleantech'
-    N_othery02 = len(df_othery02['APPLN_ID'].drop_duplicates())
-    df_temp = pd.concat([df_y02, df_othery02])
-    df_temp["TECH_PROX"] = df_temp.MEAN_BERT
-    palette = {'other cleantech': 'lightgrey', y02: greens_dict[y02]}
-    ax = sns.boxplot(x="N_WORDS", y="TECH_PROX", hue="LABEL",
-                 data=df_temp, linewidth=1, ax=ax, palette=palette)
-    ax.set_title('Proximity to ' + y02 + ' (based on $N_{' + y02 + '}$ = ' + str(N_y02) + ', ' + '$N_{other-y02}$ = ' + str(N_othery02) + ')')
-    ax.set_xlabel('Size of semantic technology space (number of words)')
-    ax.set_ylabel('Technological proximity')
-    ax.legend_.set_title('Patent class')
-plt.suptitle("Technological proximity based on out-of sample patents", size=16)
-fig.tight_layout()
-fig.subplots_adjust(top=0.95)
-plt.show()
-# -
+# 4. 
 
 # Results look good.
 
