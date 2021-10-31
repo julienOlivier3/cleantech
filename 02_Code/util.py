@@ -103,6 +103,7 @@ def custom_tokenizer(nlp):
                                 token_match=None)
 nlp.tokenizer = custom_tokenizer(nlp)
 
+import pandas as pd
 def string_to_lemma(doc, exclude_pos = ['PUNCT', 'NUM', 'X'], exclude_stopwords = True):
     """Function which returns a list of lemmatized words.
     
@@ -122,15 +123,15 @@ def string_to_lemma(doc, exclude_pos = ['PUNCT', 'NUM', 'X'], exclude_stopwords 
     
     if exclude_pos:
         if exclude_stopwords:
-            return([token.lemma_ for token in doc if token.pos_ not in exclude_pos if not token.is_stop])
+            return([token.lemma_.lower() for token in doc if token.pos_ not in exclude_pos if not token.is_stop])
         else:
-            return([token.lemma_ for token in doc if token.pos_ not in exclude_pos])
+            return([token.lemma_.lower() for token in doc if token.pos_ not in exclude_pos])
         
     else:
         if exclude_stopwords:
-            return([token.lemma_ for token in doc if not token.is_stop])
+            return([token.lemma_.lower() for token in doc if not token.is_stop])
         else:
-            return([token.lemma_ for token in doc])
+            return([token.lemma_.lower() for token in doc])
 
 
 # Create a color map for the distinct cleantech classes
@@ -162,3 +163,25 @@ def read_cache(cache_path):
         except EOFError:
             pass
     return(data)
+
+# Function which joins list of strings to one joint string while treating missing values consistently
+import pandas as pd
+def create_joint_string(x, columns = ['SHORT_DESCRIPTION', 'LONG_DESCRIPTION', 'PRODUCTS_DESCRIPTION', 'OVERVIEW']):
+    return(' '.join([i for i in list(x[columns].values) if not pd.isnull(i)]))  
+
+# Function that calculates relative count frequencies based on the Counter method.
+def counter_to_relative(counter):
+    total_count = sum(counter.values())
+    relative = {}
+    for key in counter:
+        relative[key] = counter[key] / total_count
+    return relative
+
+
+# Calculate cosine similarity between two vectors
+import numpy as np
+def cosine_similarity_vectors(v1, v2):
+    numerator=np.dot(v1, v2)
+    denumerator1 = np.sqrt(np.sum(np.square(v1)))
+    denumerator2 = np.sqrt(np.sum(np.square(v2)))
+    return(numerator*1/(denumerator1*denumerator2))

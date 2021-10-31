@@ -3,12 +3,13 @@
 .RData
 .Ruserdata
 .ipynb_checkpoints
-*.ipynb
+02_Code/*.ipynb
 02_Code/config.py
 02_Code/__pycache__
 02_Code/01_Old
 01_Data
 03_Model
+04_Writing/01_Figures/*.ipynb
 .virtual_documents/
 .rcache
 .pycache
