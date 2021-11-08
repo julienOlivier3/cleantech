@@ -1,18 +1,19 @@
 # Setup -------------------------------------------------------------------
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(tidyverse, rvest, janitor, memoise, here)
+pacman::p_load(tidyverse, rvest, janitor, memoise, here, openxlsx)
 
 
 # Scrape base table of companies in 2021 Global Cleantech 100 List
 scrape_tab <- function(url){
-
+  
   html <- read_html(url)
   
   tab_base <- html %>% html_table(header = TRUE, convert = TRUE, na.strings = "") %>% 
     .[[1]] %>% 
     head(100) %>% 
     clean_names("all_caps") %>% 
-    select(-c(X, COMPANY)) 
+    select(-c(X, COMPANY)) %>% 
+    filter(!str_detect(GEOGRAPHY, 'No results found.'))
   
   tab_href <- html %>% html_element(xpath = "//*[@id='gct-table-data']") %>% 
     html_element("tbody") %>% 
@@ -23,14 +24,14 @@ scrape_tab <- function(url){
     mutate(
       COMPANY = str_remove(HREF, "/company/"),
       HREF = paste0("https://i3connect.com/", HREF)
-      )
+    )
   
   tab <- tab_base %>% 
     bind_cols(tab_href) %>% 
     select(COMPANY, everything())
   
   return(tab)
-    
+  
 }
 
 
@@ -84,73 +85,93 @@ cached_scrape_firminfo <- memoise(scrape_firminfo, cache = cache_filesystem(cach
 
 
 # Scraping ----------------------------------------------------------------
-# First, scrape the base table 
-url <- "https://i3connect.com/gct100/the-list"
-base_table <- scrape_tab(url)
+# Create empty tibble for final results
+df_cleantech <- tibble()
 
-# Second, given the HREF in the base table scrape the detailed firm information
-pattern_vector <- c(
-  '\"id\":',
-  '\"name\":',
-  '\"url\":',
-  '\"logo_id\":',
-  '\"short_description\":',
-  '\"website\":',
-  '\"year_founded\":',
-  '\"telephone\":',
-  '\"address\":',
-  '\"city\":',
-  '\"state\":',
-  '\"zip\":',
-  '\"country_id\":',
-  '\"company_status_id\":',
-  '\"num_employees\":',
-  '\"ticker_symbol\":',
-  '\"overview\":',
-  '\"products_description\":',
-  '\"development_stage_id\":',
-  '\"primary_tag\":',
-  '\"total_investment\":',
-  '\"updated_at\":',
-  '\"investor_status_id\":',
-  '\"assets\":',
-  '\"long_description\":',
-  '\"investment_focus\":',
-  '\"key_funds\":',
-  '\"investor_type_id\":',
-  '\"updated_by_user_id\":',
-  '\"company_logo\":',
-  '\"standard\":',
-  '\"logo_url\":',
-  '\"profile_type_id\":',
-  '\"hidden\":',
-  '\"industry_type_id\":',
-  '\"revenue_range_id\":',
-  '\"snapshot\":',
-  '\"offer\":',
-  '\"industry_group\":',
-  '\"company_type\":',
-  '\"industry_type\":',
-  '\"country\":',
-  '\"investor_type_name\":',
-  '\"stage\":',
-  '\"primary_tag_id\":',
-  '\"industry_group_id\":'
-)
+# The Cleantech-100 list exists for all years from 2009-2021. Adding the year to the base url
+# leads to the respective year list
+for (year in (2017:2021)){
+  # First, scrape the base table 
+  url <- "https://i3connect.com/gct100/the-list/"
+  base_table <- scrape_tab(paste0(url, year))
+
+  # Second, given the HREF in the base table scrape the detailed firm information
+  pattern_vector <- c(
+    '\"id\":',
+    '\"name\":',
+    '\"url\":',
+    '\"logo_id\":',
+    '\"short_description\":',
+    '\"website\":',
+    '\"year_founded\":',
+    '\"telephone\":',
+    '\"address\":',
+    '\"city\":',
+    '\"state\":',
+    '\"zip\":',
+    '\"country_id\":',
+    '\"company_status_id\":',
+    '\"num_employees\":',
+    '\"ticker_symbol\":',
+    '\"overview\":',
+    '\"products_description\":',
+    '\"development_stage_id\":',
+    '\"primary_tag\":',
+    '\"total_investment\":',
+    '\"updated_at\":',
+    '\"investor_status_id\":',
+    '\"assets\":',
+    '\"long_description\":',
+    '\"investment_focus\":',
+    '\"key_funds\":',
+    '\"investor_type_id\":',
+    '\"updated_by_user_id\":',
+    '\"company_logo\":',
+    '\"standard\":',
+    '\"logo_url\":',
+    '\"profile_type_id\":',
+    '\"hidden\":',
+    '\"industry_type_id\":',
+    '\"revenue_range_id\":',
+    '\"snapshot\":',
+    '\"offer\":',
+    '\"industry_group\":',
+    '\"company_type\":',
+    '\"industry_type\":',
+    '\"country\":',
+    '\"investor_type_name\":',
+    '\"stage\":',
+    '\"primary_tag_id\":',
+    '\"industry_group_id\":')
 
 
-df_cleantech <- lapply(base_table$HREF, function(url) cached_scrape_firminfo(url, pattern_vector)) %>% bind_rows()
+  df_temp <- lapply(base_table$HREF, function(url) cached_scrape_firminfo(url, pattern_vector)) %>% bind_rows()
 
-# Clean data
-df_cleantech <- df_cleantech %>% 
-  na_if('null') %>% 
-  na_if("") %>% 
-  na_if("N/A") %>% 
-  mutate(primary_tag = str_replace(primary_tag, pattern = "\\\\u0026", replacement = "&"),
-         industry_group = str_replace(industry_group, pattern = "\\\\u0026", replacement = "&")) %>% 
-  clean_names("all_caps") %>% 
-  type_convert()
+  # Clean data
+  df_temp <- df_temp %>% 
+    na_if('null') %>% 
+    na_if("") %>% 
+    na_if("N/A") %>% 
+    mutate(primary_tag = str_replace(primary_tag, pattern = "\\\\u0026", replacement = "&"),
+           industry_group = str_replace(industry_group, pattern = "\\\\u0026", replacement = "&")) %>% 
+    clean_names("all_caps") %>% 
+    type_convert()
+  
+  df_cleantech <- df_cleantech %>% 
+    bind_rows(df_temp)
+  
+  print(year)
+  
+}
+
 
 # Save to file
 df_cleantech %>% 
+  distinct() %>% # drop duplicates
   write_delim(here("01_Data/02_Firms/df_cleantech_firms.txt"), delim = '\t')
+
+# Save for labeling
+df_cleantech %>% 
+  distinct() %>% 
+  select(ID, WEBSITE, PRIMARY_TAG, SHORT_DESCRIPTION, OVERVIEW, PRODUCTS_DESCRIPTION) %>% 
+  write.xlsx(here("01_Data/02_Firms/df_cleantech_firms_label.xlsx"))

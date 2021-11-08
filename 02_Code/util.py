@@ -185,3 +185,113 @@ def cosine_similarity_vectors(v1, v2):
     denumerator1 = np.sqrt(np.sum(np.square(v1)))
     denumerator2 = np.sqrt(np.sum(np.square(v2)))
     return(numerator*1/(denumerator1*denumerator2))
+
+
+# Large BERT model trained on patent data
+from transformers import AutoTokenizer, AutoModel
+import torch
+
+patentbert_model = AutoModel.from_pretrained("anferico/bert-for-patents",
+                                  output_hidden_states=True)
+patentbert_tokenizer = AutoTokenizer.from_pretrained("anferico/bert-for-patents")
+
+import numpy as np
+
+def get_word_indeces(tokenizer, text, word):
+    '''
+    Determines the index or indeces of the tokens corresponding to `word`
+    within `text`. `word` can consist of multiple words, e.g., "cell biology".
+    
+    Determining the indeces is tricky because words can be broken into multiple
+    tokens. I've solved this with a rather roundabout approach--I replace `word`
+    with the correct number of `[MASK]` tokens, and then find these in the 
+    tokenized result. 
+    '''
+    # Tokenize the 'word'--it may be broken into multiple tokens or subwords.
+    word_tokens = tokenizer.tokenize(word)
+
+    # Create a sequence of `[MASK]` tokens to put in place of `word`.
+    masks_str = ' '.join(['[MASK]']*len(word_tokens))
+
+    # Replace the word with mask tokens.
+    text_masked = text.replace(word, masks_str)
+
+    # `encode` performs multiple functions:
+    #   1. Tokenizes the text
+    #   2. Maps the tokens to their IDs
+    #   3. Adds the special [CLS] and [SEP] tokens.
+    input_ids = tokenizer.encode(text_masked)
+
+    # Use numpy's `where` function to find all indeces of the [MASK] token.
+    mask_token_indeces = np.where(np.array(input_ids) == tokenizer.mask_token_id)[0]
+
+    return mask_token_indeces
+
+
+def get_embedding(b_model, b_tokenizer, text, word='', extract_CLS=True):
+    '''
+    Uses the provided model and tokenizer to produce an embedding for the
+    provided `text`, and a "contextualized" embedding for `word`, if provided.
+    extract_CLS = True: Extract CLS token as sequence embedding, otherwise take average over all contextualized word embeddings for the sequence embedding
+    '''
+    
+    # If a word is provided, figure out which tokens correspond to it.
+    if not word == '':
+        word_indeces = get_word_indeces(b_tokenizer, text, word)
+
+    # Encode the text, adding the (required!) special tokens, and converting to
+    # PyTorch tensors.
+    encoded_dict = b_tokenizer.encode_plus(
+                        text,                      # Sentence to encode.
+                        add_special_tokens = True, # Add '[CLS]' and '[SEP]'
+                        return_tensors = 'pt',     # Return pytorch tensors.
+                )
+
+    input_ids = encoded_dict['input_ids']
+    
+    b_model.eval()
+
+    # Run the text through the model and get the hidden states.
+    bert_outputs = b_model(input_ids)
+    
+    # Run the text through BERT, and collect all of the hidden states produced
+    # from all 12 layers. 
+    with torch.no_grad():
+
+        outputs = b_model(input_ids)
+
+        # Evaluating the model will return a different number of objects based on 
+        # how it's  configured in the `from_pretrained` call earlier. In this case, 
+        # because we set `output_hidden_states = True`, the third item will be the 
+        # hidden states from all layers. See the documentation for more details:
+        # https://huggingface.co/transformers/model_doc/bert.html#bertmodel
+        hidden_states = outputs[2]
+
+    # `hidden_states` has shape [25 x 1 x <sentence length> x 1024]
+
+    # Select the embeddings from the second to last layer. Other strategies are viable.
+    # See here: https://jalammar.github.io/illustrated-bert/
+    # `token_vecs` is a tensor with shape [<sent length> x 1024]
+    token_vecs = hidden_states[-2][0]
+
+    # either extract CLS token
+    if extract_CLS:
+        sentence_embedding = token_vecs[0]
+    # or calculate the average of all token vectors.
+    else:
+        sentence_embedding = torch.mean(token_vecs, dim=0)
+
+    # Convert to numpy array.
+    sentence_embedding = sentence_embedding.detach().numpy()
+
+    # If `word` was provided, compute an embedding for those tokens.
+    if not word == '':
+        # Take the average of the embeddings for the tokens in `word`.
+        word_embedding = torch.mean(token_vecs[word_indeces], dim=0)
+
+        # Convert to numpy array.
+        word_embedding = word_embedding.detach().numpy()
+    
+        return (sentence_embedding, word_embedding)
+    else:
+        return sentence_embedding
