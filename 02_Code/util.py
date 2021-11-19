@@ -214,7 +214,8 @@ def get_word_indeces(tokenizer, text, word):
     masks_str = ' '.join(['[MASK]']*len(word_tokens))
 
     # Replace the word with mask tokens.
-    text_masked = text.replace(word, masks_str)
+    s = word
+    text_masked = re.sub(r'\b%s\b' % re.escape(s), masks_str, text)
 
     # `encode` performs multiple functions:
     #   1. Tokenizes the text
@@ -295,3 +296,108 @@ def get_embedding(b_model, b_tokenizer, text, word='', extract_CLS=True):
         return (sentence_embedding, word_embedding)
     else:
         return sentence_embedding
+
+
+
+def get_word_embedding(b_model, b_tokenizer, text, word=''):
+    '''
+    Uses the provided model and tokenizer to produce an embedding for the
+    provided `text`, and a "contextualized" embedding for `word`, if provided.
+    '''
+    
+    # Get word indices
+    word_indeces = get_word_indeces(b_tokenizer, text, word)
+    
+    # If no index and thus no embedding exists for the word pass
+    if word_indeces.size==0:
+        pass
+    
+    # Else extract word embedding from model
+    else: 
+
+        # Encode the text, adding the (required!) special tokens, and converting to
+        # PyTorch tensors.
+        encoded_dict = b_tokenizer.encode_plus(
+                            text,                      # Sentence to encode.
+                            add_special_tokens = True, # Add '[CLS]' and '[SEP]'
+                            return_tensors = 'pt',     # Return pytorch tensors.
+                    )
+
+        input_ids = encoded_dict['input_ids']
+
+        #b_model.eval()
+
+        # Run the text through the model and get the hidden states.
+        bert_outputs = b_model(input_ids)
+
+        # Run the text through BERT, and collect all of the hidden states produced
+        # from all 12 layers. 
+        with torch.no_grad():
+
+            outputs = b_model(input_ids)
+
+            # Evaluating the model will return a different number of objects based on 
+            # how it's  configured in the `from_pretrained` call earlier. In this case, 
+            # because we set `output_hidden_states = True`, the third item will be the 
+            # hidden states from all layers. See the documentation for more details:
+            # https://huggingface.co/transformers/model_doc/bert.html#bertmodel
+            hidden_states = outputs[2]
+
+        # `hidden_states` has shape [25 x 1 x <sentence length> x 1024]
+
+        # Select the embeddings from the second to last layer. Other strategies are viable.
+        # See here: https://jalammar.github.io/illustrated-bert/
+        # `token_vecs` is a tensor with shape [<sent length> x 1024]
+        token_vecs = hidden_states[-2][0]
+        
+        # Take the average of the embeddings for the tokens in `word`.
+        word_embedding = torch.mean(token_vecs[word_indeces], dim=0)
+
+        # Convert to numpy array.
+        word_embedding = word_embedding.detach().numpy()
+
+        return (word_embedding)
+
+
+def get_contextualized_word_embeddings(word_list, b_model, b_tokenizer, extract_CLS=False):
+    # Concatenate list of words with whitespaces to a string
+    word_concatenation = ' '.join(str(word) for word in word_list)
+    
+    # Create list of contextualized word embeddings
+    word_embeddings = []
+    for word in word_list:
+        (_, word_emb) = get_embedding(b_model=b_model, b_tokenizer=b_tokenizer, text=word_concatenation, word=word, extract_CLS=extract_CLS)
+        if isinstance(word_emb, np.ndarray):
+            word_embeddings.append(list(word_emb))
+    
+    return(np.array(word_embeddings))
+
+
+
+def get_contextualized_word_embeddings_sbert(keyword_list, encoder, tokenizer, output_type='embeddings_only'):
+    sentence = " ".join(list(dict.fromkeys(keyword_list)))
+    tokens_sen = tokenizer(sentence)['input_ids']
+    token_vecs = encoder(sentence, output_value="token_embeddings")
+
+    output = {}
+    embed_vecs = []
+
+    end = start = 1
+    for i in range(len(keyword_list)):
+        keyword = keyword_list[i]
+        token_keyword = tokenizer.tokenize(keyword)
+        start = end
+        end = start + len(token_keyword)
+        if keyword in output:
+            keyword = keyword + "v"
+        embed_vecs.append(list(token_vecs[start:end].mean(axis=0)))
+        output[keyword] = {
+            "tokens": token_keyword,
+            "vector_ids": tokens_sen[start:end],
+            "embed_vec": torch.mean(token_vecs[start:end], dim=0)
+        }
+
+    if output_type=='embeddings_only':
+        return(np.array(embed_vecs))
+    else:
+        return output

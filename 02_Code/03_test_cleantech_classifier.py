@@ -18,6 +18,7 @@ import re
 import string
 import pandas as pd
 import numpy as np
+import torch
 import pickle as pkl
 from pyprojroot import here
 from tqdm import tqdm
@@ -27,6 +28,39 @@ from sklearn.metrics.pairwise import cosine_similarity
 import seaborn as sns
 from sentence_transformers import SentenceTransformer
 model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+model._first_module().max_seq_length = 510 # increase maximum sequence length which is 128 by default
+from util import patentbert_model, patentbert_tokenizer, get_word_indeces, get_embedding, get_word_embedding, get_contextualized_word_embeddings, get_contextulaized_word_embeddings_sbert
+
+
+def get_contextualized_word_embeddings_sbert(keyword_list, encoder, tokenizer, output_type='embeddings_only'):
+    keyword_list = list(dict.fromkeys(keyword_list))
+    sentence = " ".join(keyword_list)
+    tokens_sen = tokenizer(sentence)['input_ids']
+    token_vecs = encoder(sentence, output_value="token_embeddings")
+
+    output = {}
+    embed_vecs = []
+
+    end = start = 1
+    for i in range(len(keyword_list)):
+        keyword = keyword_list[i]
+        token_keyword = tokenizer.tokenize(keyword)
+        start = end
+        end = start + len(token_keyword)
+        if keyword in output:
+            keyword = keyword + "v"
+        embed_vecs.append(list(token_vecs[start:end].mean(axis=0)))
+        output[keyword] = {
+            "tokens": token_keyword,
+            "vector_ids": tokens_sen[start:end],
+            "embed_vec": torch.mean(token_vecs[start:end], dim=0)
+        }
+
+    if output_type=='embeddings_only':
+        return(np.array(embed_vecs))
+    else:
+        return output
+
 
 # + [markdown] heading_collapsed="true" tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[]
 # # Functions & Data
@@ -36,9 +70,14 @@ model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
 df_topic_words = pd.read_csv(here(r'.\03_Model\temp\df_topic_words.txt'), sep='\t', encoding='utf-8', index_col='Unnamed: 0')
 
 # Read semantic vectors from disk
-semantic_vectors = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors.pkl'), 'rb'))           # based on word embeddings
-semantic_vectors_wavg = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors_wavg.pkl'), 'rb')) # based on averaged word embeddings with word probas as weights
-semantic_vectors_bert = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors_bert.pkl'), 'rb')) # based on transformer embeddings
+semantic_vectors = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors.pkl'), 'rb'))                       # based on word embeddings
+semantic_vectors_wavg = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors_wavg.pkl'), 'rb'))             # based on averaged word embeddings with word probas as weights
+semantic_vectors_bert = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors_bert.pkl'), 'rb'))             # based on bert embeddings
+semantic_vectors_patentbert = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors_patentbert.pkl'), 'rb')) # based on bert embeddings trained on patent data
+semantic_vectors_patentbert_CLS = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors_patentbert_CLS.pkl'), 'rb')) # based on bert embeddings trained on patent data
+# DEPRECATED
+#semantic_vectors_patentbert_words = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors_patentbert_words.pkl'), 'rb')) # based on bert contextualized word embeddings trained on patent data
+semantic_vectors_sbert_words = pkl.load(open(here(r'.\03_Model\temp\semantic_vectors_sbert_words.pkl'), 'rb')) # based on bert contextualized word embeddings
 
 # Read word embeddings
 embeddings_index = {}
@@ -61,7 +100,7 @@ def cosine_similarity_vectors(v1, v2):
 # Function that translates a list of words into a numpy array of word embeddings
 # Emebdding_type specifies the embedding strategy: 'we' = nd.array of word embeddings, 'we_avg': weighted average over nd.array of word_embeddings
 # 'bert': transformer word embedding
-def word_list_to_embedding_array(word_list, embedding_type='we'):
+def word_list_to_embedding_array(word_list, embedding_type='we', extract_CLS=False):
     if embedding_type=='we':
         # Extract word embedding if exist, else return None
         embedding_list = [list(embeddings_index.get(word, [])) for word in word_list]
@@ -80,7 +119,22 @@ def word_list_to_embedding_array(word_list, embedding_type='we'):
         # Concatenate list of words to whitespace seperated string
         word_concatenation = ' '.join(str(i) for i in word_list)
         # Create numpy array of sentence embedding
-        embedding = model.encode(word_concatenation)        
+        embedding = model.encode(word_concatenation)
+    if 'patentbert' in embedding_type:
+        # Concatenate list of words to whitespace seperated string
+        word_concatenation = ' '.join(str(i) for i in word_list)
+        # Create numpy array of sentence embedding
+        embedding = get_embedding(patentbert_model, patentbert_tokenizer, word_concatenation, word='', extract_CLS=extract_CLS)
+# DEPRECATED
+    # if embedding_type=='patb_words':
+    #     # Get contextualized word embeddings
+    #     embedding = get_contextualized_word_embeddings(word_list, patentbert_model, patentbert_tokenizer)
+    if embedding_type=='sb_words':
+        # Get contextualized word embeddings
+        embedding = get_contextualized_word_embeddings_sbert(word_list, model.encode, model.tokenizer)
+        # Remove word embeddings with NAs only - happens if max_seq_length is reached
+        if len(embedding)>0:
+            embedding = embedding[~np.all(np.isnan(embedding), axis=1)] 
     return(embedding)
 
 
@@ -88,17 +142,25 @@ def word_list_to_embedding_array(word_list, embedding_type='we'):
 def get_semantic_vectors(technology, n_words, embedding_type='we'):
     if embedding_type=='we':
         return(semantic_vectors[technology][0:n_words,])
-    if embedding_type=='bert':
-        return(semantic_vectors_bert[technology][n_words])
     if embedding_type=='we_avg':
         return(semantic_vectors_wavg[technology][n_words])
+    if embedding_type=='bert':
+        return(semantic_vectors_bert[technology][n_words])
+    if embedding_type=='patentbert':
+        return(semantic_vectors_patentbert[technology][n_words])
+    if embedding_type=='patentbertCLS':
+        return(semantic_vectors_patentbert_CLS[technology][n_words])
+    if embedding_type=='patb_words':
+        return(semantic_vectors_patentbert_words[technology][n_words])
+    if embedding_type=='sb_words':
+        return(semantic_vectors_sbert_words[technology][n_words])
 
 
 df_test = pd.read_pickle(here(r'.\03_Model\temp\df_test.pkl'))
 
 df_test.head(3)
 
-# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[]
+# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true
 # # Testing on hold out patent abstracts 
 
 # + [markdown] tags=[]
@@ -460,7 +522,7 @@ plt.show()
 # Results look good.
 
 # + [markdown] tags=[]
-# # Testing on corporate websites 
+# # Testing on textual company information 
 # -
 
 import config
@@ -495,7 +557,7 @@ df_nasdaq['LABEL'] = 'nasdaq'
 
 # THIS REQUIRES UPDATING ONCE ALL GERMAN COMPANY DESCRIPTIONS HAVE BEEN TRANSLATED
 from util import read_cache
-df_nontech = pd.DataFrame(read_cache(here(r'02_Code/.pycache/company_desc_translations.pkl')), columns=['NAME', 'DESCRIPTION'])
+df_nontech = pd.DataFrame(read_cache(here(r'02_Code/.pycache/company_desc_translations1.pkl')), columns=['NAME', 'DESCRIPTION'])
 df_nontech['LABEL'] = 'non-tech'
 
 # Combine all firm samples in one df
@@ -519,8 +581,10 @@ df['LEMMAS'] = df.DESCRIPTION.progress_apply(lambda x: [lemma.lower() for lemma 
 
 df.head(3)
 
+word_list_to_embedding_array(['hello', 'you'], embedding_type='sb_words', extract_CLS=True)[0][:10]
 
-def proximity_testing_firm(df, embedding_type, text_type='LEMMAS', size_list=[10, 20, 30, 40, 50, 75, 100, 200, 250, 300, 400, 500, 1000, 2000, 3000, 4000]):
+
+def proximity_testing_firm(df, embedding_type, text_type='LEMMAS', size_list=[10, 20, 30, 40, 50, 75, 100, 200, 250, 300, 400, 500, 1000, 2000, 3000, 4000], extract_CLS=False):
     
     temp = []
     
@@ -535,7 +599,7 @@ def proximity_testing_firm(df, embedding_type, text_type='LEMMAS', size_list=[10
         desc = row.DESCRIPTION
 
         # Create word embedding matrix
-        patent_embedding = word_list_to_embedding_array(clean_document, embedding_type='bert')
+        patent_embedding = word_list_to_embedding_array(clean_document, embedding_type=embedding_type, extract_CLS=extract_CLS)
         len_patent_embedding = len(patent_embedding)
         # Only if company descriptions/lemmas thereof exist, continue with the proximity calculation
         if len_patent_embedding != 0:
@@ -574,7 +638,7 @@ def proximity_testing_firm(df, embedding_type, text_type='LEMMAS', size_list=[10
                         temp.append([ind, desc, y02, label, n_words, similarity])
                     
                
-                    if embedding_type == 'bert':
+                    if 'bert' in embedding_type:
                         technology_embedding = get_semantic_vectors(y02, n_words, embedding_type=embedding_type)
 
                         # Calculate cosine similarity
@@ -583,6 +647,18 @@ def proximity_testing_firm(df, embedding_type, text_type='LEMMAS', size_list=[10
                             similarity = 0
 
                         temp.append([ind, desc, y02, label, n_words, similarity])
+                        
+                    if embedding_type == 'sb_words':
+                        technology_embedding = get_semantic_vectors(y02, n_words, embedding_type=embedding_type)
+                        technology_embedding = technology_embedding[~np.all(np.isnan(technology_embedding), axis=1)] # remove word embeddings with NAs only - happens if max_seq_length is reached
+                        
+                        # Calculate cosine similarity between all permutations of patent vector space and technology semantic vector space
+                        similarity = cosine_similarity(technology_embedding, patent_embedding).max(axis=0)
+                        similarity[similarity < 0] = 0
+                        similarity = similarity.mean()
+                        
+                        temp.append([ind, desc, y02, label, n_words, similarity])
+                        
 
         else:
             continue
@@ -596,19 +672,33 @@ def proximity_testing_firm(df, embedding_type, text_type='LEMMAS', size_list=[10
         colnames = ['NAME', 'DESCRIPTION', 'Y02', 'LABEL', 'N_WORDS', 'MEAN', 'MEAN2', 'N_EXACT', 'N_EXACT_NORM', 'N_EXACT_NORM_MEAN', 'N_EXACT_NORM_MEAN2']
     if embedding_type == 'we_avg':
         colnames = ['NAME', 'DESCRIPTION', 'Y02', 'LABEL', 'N_WORDS', 'MEAN_WAVG']
-    if embedding_type == 'bert':
+    if 'bert' in embedding_type:
         colnames = ['NAME', 'DESCRIPTION', 'Y02', 'LABEL', 'N_WORDS', 'MEAN_BERT']
-
+    if embedding_type == 'sb_words':
+        colnames = ['NAME', 'DESCRIPTION', 'Y02', 'LABEL', 'N_WORDS', 'MEAN_BERT']
+        
     df_prox = pd.DataFrame(temp, columns=colnames)
     return(df_prox)
 
-df_prox = proximity_testing_firm(df, embedding_type='bert', text_type='LEMMAS')
+df.iloc[272].LEMMAS
 
-# if embedding_type=='bert', execute this cell
-df_prox = df_prox.loc[df_prox.N_WORDS.isin([10, 20, 30, 40, 50, 75, 100, 200, 300, 400, 500])]
+comp_vec = word_list_to_embedding_array(df.iloc[2].LEMMAS, embedding_type='sb_words')
+comp_vec
+
+comp_vec[100:]
+
+tech_vec = get_semantic_vectors('Y02C', 300, embedding_type='sb_words')
+tech_vec
+
+tech_vec[~np.all(np.isnan(tech_vec), axis=1) ]
+
+df_prox = proximity_testing_firm(df, embedding_type='sb_words', text_type='LEMMAS', size_list=[10, 20, 30, 40, 50, 75, 100, 200, 250, 300], extract_CLS=True)
+
+df_prox
 
 df_firms = pd.melt(df_prox, id_vars=['LABEL', 'N_WORDS', ], value_vars=['MEAN_BERT'], var_name='measure', value_name='value')
 
+# patentbertCLS
 sns.catplot(
     data=df_firms, 
     x="N_WORDS", y="value",
@@ -616,7 +706,107 @@ sns.catplot(
     col_wrap=1, sharey=False, sharex=True, height=6, aspect=1.5
 )
 
+# patentbert
+sns.catplot(
+    data=df_firms, 
+    x="N_WORDS", y="value",
+    hue="LABEL",  col="measure", kind="box",
+    col_wrap=1, sharey=False, sharex=True, height=6, aspect=1.5
+)
+
+# sbert
+sns.catplot(
+    data=df_firms, 
+    x="N_WORDS", y="value",
+    hue="LABEL",  col="measure", kind="box",
+    col_wrap=1, sharey=False, sharex=True, height=6, aspect=1.5
+)
+
+# sbert_words
+sns.catplot(
+    data=df_firms, 
+    x="N_WORDS", y="value",
+    hue="LABEL",  col="measure", kind="box",
+    col_wrap=1, sharey=False, sharex=True, height=6, aspect=1.5
+)
+
+# Read topic-proba-df
+df_topic_words = pd.read_csv(here(r'.\03_Model\temp\df_topic_words.txt'), sep='\t', encoding='utf-8', index_col='Unnamed: 0')
+
 # +
+# sbert
+fig, axes = plt.subplots(figsize=(15,20), ncols=2, nrows=4)
+
+y02s = ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']
+
+for y02, ax in zip(y02s, axes.flat):
+    df_temp = df_prox.loc[df_prox.Y02 == y02].copy()
+    df_temp["TECH_PROX"] = df_temp.MEAN_BERT
+    palette = {'nasdaq': 'lightgrey', 'non-tech': 'yellow', 'cleantech': greens[len(greens)-1]}
+    ax = sns.boxplot(x="N_WORDS", y="TECH_PROX", hue="LABEL",
+                 data=df_temp, linewidth=1, ax=ax, palette=palette)
+    ax.set_title('Proximity to ' + y02)
+    ax.set_xlabel('Size of semantic technology space (number of words)')
+    ax.set_ylabel('Technological proximity')
+    ax.legend_.set_title('Company type')
+    new_labels = ['Cleantech-100', 'NASDAQ-100', 'Lowtech sample']
+    for t, l in zip(ax.legend_.texts, new_labels):
+        t.set_text(l)
+plt.suptitle("Technological proximity based on company descriptions", size=16)
+fig.tight_layout()
+fig.subplots_adjust(top=0.95)
+plt.show()
+
+# +
+# sbert_words
+fig, axes = plt.subplots(figsize=(15,20), ncols=2, nrows=4)
+
+y02s = ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']
+
+for y02, ax in zip(y02s, axes.flat):
+    df_temp = df_prox.loc[df_prox.Y02 == y02].copy()
+    df_temp["TECH_PROX"] = df_temp.MEAN_BERT
+    palette = {'nasdaq': 'lightgrey', 'non-tech': 'yellow', 'cleantech': greens[len(greens)-1]}
+    ax = sns.boxplot(x="N_WORDS", y="TECH_PROX", hue="LABEL",
+                 data=df_temp, linewidth=1, ax=ax, palette=palette)
+    ax.set_title('Proximity to ' + y02)
+    ax.set_xlabel('Size of semantic technology space (number of words)')
+    ax.set_ylabel('Technological proximity')
+    ax.legend_.set_title('Company type')
+    new_labels = ['Cleantech-100', 'NASDAQ-100', 'Lowtech sample']
+    for t, l in zip(ax.legend_.texts, new_labels):
+        t.set_text(l)
+plt.suptitle("Technological proximity based on company descriptions", size=16)
+fig.tight_layout()
+fig.subplots_adjust(top=0.95)
+plt.show()
+
+# +
+# patentbert
+fig, axes = plt.subplots(figsize=(15,20), ncols=2, nrows=4)
+
+y02s = ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']
+
+for y02, ax in zip(y02s, axes.flat):
+    df_temp = df_prox.loc[df_prox.Y02 == y02].copy()
+    df_temp["TECH_PROX"] = df_temp.MEAN_BERT
+    palette = {'nasdaq': 'lightgrey', 'non-tech': 'yellow', 'cleantech': greens[len(greens)-1]}
+    ax = sns.boxplot(x="N_WORDS", y="TECH_PROX", hue="LABEL",
+                 data=df_temp, linewidth=1, ax=ax, palette=palette)
+    ax.set_title('Proximity to ' + y02)
+    ax.set_xlabel('Size of semantic technology space (number of words)')
+    ax.set_ylabel('Technological proximity')
+    ax.legend_.set_title('Company type')
+    new_labels = ['Cleantech-100', 'NASDAQ-100', 'Lowtech sample']
+    for t, l in zip(ax.legend_.texts, new_labels):
+        t.set_text(l)
+plt.suptitle("Technological proximity based on company descriptions", size=16)
+fig.tight_layout()
+fig.subplots_adjust(top=0.95)
+plt.show()
+
+# +
+# patentbertCLS
 fig, axes = plt.subplots(figsize=(15,20), ncols=2, nrows=4)
 
 y02s = ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']
@@ -644,6 +834,22 @@ plt.show()
 
 # Look at the "outliers" for the proximity measures to Y02C.
 
+# sbert
+df_prox.loc[(df_prox.Y02=='Y02C') 
+            #& (df_prox.LABEL=='cleantech') 
+            & (df_prox.N_WORDS==50)].sort_values('MEAN_BERT', ascending=False)
+
+# sbert_words
+df_prox.loc[(df_prox.Y02=='Y02C') 
+            #& (df_prox.LABEL=='cleantech') 
+            & (df_prox.N_WORDS==50)].sort_values('MEAN_BERT', ascending=False)
+
+# patentbert
+df_prox.loc[(df_prox.Y02=='Y02C') 
+            #& (df_prox.LABEL=='cleantech') 
+            & (df_prox.N_WORDS==50)].sort_values('MEAN_BERT', ascending=False)
+
+# patentbertCLS
 df_prox.loc[(df_prox.Y02=='Y02C') 
             #& (df_prox.LABEL=='cleantech') 
             & (df_prox.N_WORDS==50)].sort_values('MEAN_BERT', ascending=False)

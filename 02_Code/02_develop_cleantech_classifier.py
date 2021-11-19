@@ -86,7 +86,7 @@ df_test.shape
 with open(here(r'.\03_Model\temp\df_test.pkl'), 'wb') as f:
     pkl.dump(df_test, f)
 
-# + [markdown] heading_collapsed="true" jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true
+# + [markdown] heading_collapsed="true" jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true
 # # Tf-idf text classification model
 # -
 
@@ -153,7 +153,7 @@ print(classification_report(y_true = df_test_pred.true_Y02, y_pred = df_test_pre
 
 # See [here](https://github.com/julienOlivier3/Text_Classification_Capstone) for alternatively training a neural network.
 
-# + [markdown] heading_collapsed="true" tags=[]
+# + [markdown] heading_collapsed="true" tags=[] jp-MarkdownHeadingCollapsed=true tags=[]
 # # Labelled Topic Model 
 # -
 
@@ -299,7 +299,7 @@ def get_semantic_vectors(topic, n_words):
 
 get_semantic_vectors('Y02C', 3)
 
-# Calculate cosine similarity:
+# ## Calculate cosine similarity
 
 # cosine similarity = $\frac{\sum_{i=1}^n A_i B_i}{\sqrt{\sum_{i=1}^n A_i^2} \sqrt{\sum_{i=1}^n B_i^2}}$
 
@@ -359,6 +359,10 @@ cosine_similarity(A, B)
 cosine_similarity_vectors(A[0], B[3])
 
 cosine_similarity(A, B).mean()
+
+cosine_similarity(A, B).max(axis=0)
+
+cosine_similarity(A, B).max(axis=1).mean()
 
 temp=[]
 for ra in range(A.shape[0]):
@@ -684,6 +688,8 @@ with open(here(r'.\03_Model\temp\semantic_vectors_wavg.pkl'), 'wb') as f:
 # # Transformer language model 
 # -
 
+# ## SBERT 
+
 # So far, semantic technology spaces obtained from LLDA are transfered to vector space using word embeddings and thus creating a $Q \times E$ vector space with $Q$ as the number of words used to describe the semantic technology space and $E$ as the size of the word embeddings. Another way of shifting a semantic technology space to vector space is to concatentate the $Q$ words describing the technology and using a model from the transformers family to create one embedding for the concatenated technology space. This results in a $1 \times E$ vector space with $E$ of the transformer's embedding space. In the following we use the [SBERT](https://www.sbert.net/index.html) transformer model to create the embeddings.
 
 # Read topic-proba-df
@@ -702,6 +708,8 @@ from sentence_transformers import SentenceTransformer
 from sentence_transformers import util
 model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
 model._first_module().max_seq_length = 510 # increase maximum sequence length which is 128 by default
+
+model.encode('capture c02')
 
 #Sentences are encoded by calling model.encode()
 sentence_embeddings1 = model.encode(' '.join(df_topic_words.loc[df_topic_words.Topic=='Y02C'].head(10).Word.values))
@@ -728,3 +736,397 @@ for tech_class in tqdm(tech_classes):
 # Save semantic vectors to disk
 with open(here(r'.\03_Model\temp\semantic_vectors_bert.pkl'), 'wb') as f:
     pkl.dump(semantic_vectors_bert, f)
+
+
+# Finally, we create contextualized *word* embeddings based on SBERT.
+
+def get_contextualized_word_embeddings_sbert(keyword_list, encoder, tokenizer, output_type='embeddings_only'):
+    sentence = " ".join(list(dict.fromkeys(keyword_list)))
+    tokens_sen = tokenizer(sentence)['input_ids']
+    token_vecs = encoder(sentence, output_value="token_embeddings")
+
+    output = {}
+    embed_vecs = []
+
+    end = start = 1
+    for i in range(len(keyword_list)):
+        keyword = keyword_list[i]
+        token_keyword = tokenizer.tokenize(keyword)
+        start = end
+        end = start + len(token_keyword)
+        if keyword in output:
+            keyword = keyword + "v"
+        embed_vecs.append(list(token_vecs[start:end].mean(axis=0)))
+        output[keyword] = {
+            "tokens": token_keyword,
+            "vector_ids": tokens_sen[start:end],
+            "embed_vec": torch.mean(token_vecs[start:end], dim=0)
+        }
+
+    if output_type=='embeddings_only':
+        return(np.array(embed_vecs))
+    else:
+        return output
+
+
+from tqdm import tqdm
+tech_classes = set(df_topic_words.Topic.values)
+n_words = [10, 20, 30, 40, 50, 75, 100, 200, 250, 300] # here some more description sizes are added since sentence transformers can embedd 512 tokens at most
+semantic_vectors_sbert_words = {}
+for tech_class in tqdm(tech_classes):
+    semantic_vectors_sbert_words[tech_class] = {}
+    for n_word in n_words:
+        semantic_tech = list(df_topic_words.loc[df_topic_words.Topic==tech_class].head(n_word).Word.values)
+        embedding = get_contextualized_word_embeddings_sbert(semantic_tech, model.encode, model.tokenizer)
+        semantic_vectors_sbert_words[tech_class][n_word] = embedding
+        #if n_word>10:
+        #    break
+
+# Save semantic vectors to disk
+import pickle as pkl
+with open(here(r'.\03_Model\temp\semantic_vectors_sbert_words.pkl'), 'wb') as f:
+    pkl.dump(semantic_vectors_sbert_words, f)
+
+# ## BERT for patents
+
+# To Do: Incorporate max_length=512 and truncation=True to the tokenizer!
+
+# Read topic-proba-df
+import pandas as pd
+from pyprojroot import here
+df_topic_words = pd.read_csv(here(r'.\03_Model\temp\df_topic_words.txt'), sep='\t', encoding='utf-8', index_col='Unnamed: 0')
+
+# "bert-for-patents" has been trained on >100 million patent documents and was trained on all parts of a patent (abstract, claims, description). See [here](https://github.com/google/patents-public-data/blob/master/models/BERT%20for%20Patents.md) for details.
+
+# +
+from transformers import AutoTokenizer, AutoModel
+import torch
+
+patentbert_model = AutoModel.from_pretrained("anferico/bert-for-patents",
+                                  output_hidden_states=True)
+patentbert_tokenizer = AutoTokenizer.from_pretrained("anferico/bert-for-patents")
+
+# + tags=[]
+# Print vocabulary
+#patentbert_tokenizer.vocab
+# -
+
+# Generally with BERT based models we can either 
+# - extract a sequence embedding for the complete sequence we feed into the model using the [CLS] token
+# - or extract contextualized word embeddings for each single word of the sequence
+#
+# For the latter case we need to track indices of the tokens that are generated from the sequence. The following functions help to do so.
+
+# +
+import numpy as np
+
+def get_word_indeces(tokenizer, text, word):
+    '''
+    Determines the index or indeces of the tokens corresponding to `word`
+    within `text`. `word` can consist of multiple words, e.g., "cell biology".
+    
+    Determining the indeces is tricky because words can be broken into multiple
+    tokens. I've solved this with a rather roundabout approach--I replace `word`
+    with the correct number of `[MASK]` tokens, and then find these in the 
+    tokenized result. 
+    '''
+    # Tokenize the 'word'--it may be broken into multiple tokens or subwords.
+    word_tokens = tokenizer.tokenize(word)
+
+    # Create a sequence of `[MASK]` tokens to put in place of `word`.
+    masks_str = ' '.join(['[MASK]']*len(word_tokens))
+
+    # Replace the word with mask tokens.
+    s = word
+    text_masked = re.sub(r'\b%s\b' % re.escape(s), masks_str, text)
+
+    # `encode` performs multiple functions:
+    #   1. Tokenizes the text
+    #   2. Maps the tokens to their IDs
+    #   3. Adds the special [CLS] and [SEP] tokens.
+    input_ids = tokenizer.encode(text_masked)
+
+    # Use numpy's `where` function to find all indeces of the [MASK] token.
+    mask_token_indeces = np.where(np.array(input_ids) == tokenizer.mask_token_id)[0]
+
+    return mask_token_indeces
+
+
+# -
+
+# Let's see what the function does:
+
+text = "capture co2"
+word = "co2"
+
+word_tokens = patentbert_tokenizer.tokenize(word)
+word_tokens
+
+text_tokens = patentbert_tokenizer.tokenize(text)
+text_tokens
+
+text_masked = text.replace(word, ' '.join(['[MASK]']*len(word_tokens)))
+text_masked
+
+patentbert_tokenizer
+
+patentbert_tokenizer.encode(text)
+
+patentbert_tokenizer.encode(text_masked)
+
+patentbert_tokenizer.cls_token_id
+
+patentbert_tokenizer.vocab['capture']
+
+patentbert_tokenizer.mask_token_id
+
+patentbert_tokenizer.sep_token_id
+
+# So in tokens `encode` does the following:
+#
+# [[CLS], 'capture', [MASK], [MASK], [SEP]]
+
+# And thus `get_word_indeces` tracks the indices of the tokens which together build the word for which we want a contextualized embedding.
+
+get_word_indeces(patentbert_tokenizer, text, word)
+
+
+# Next, we define a function which retrieves the actual embeddings from hidden states of the model
+
+def get_embedding(b_model, b_tokenizer, text, word='', extract_CLS=True):
+    '''
+    Uses the provided model and tokenizer to produce an embedding for the
+    provided `text`, and a "contextualized" embedding for `word`, if provided.
+    extract_CLS = True: Extract CLS token as sequence embedding, otherwise take average over all contextualized word embeddings for the sequence embedding
+    '''
+    
+    # If a word is provided, figure out which tokens correspond to it.
+    if not word == '':
+        word_indeces = get_word_indeces(b_tokenizer, text, word)
+
+    # Encode the text, adding the (required!) special tokens, and converting to
+    # PyTorch tensors.
+    encoded_dict = b_tokenizer.encode_plus(
+                        text,                      # Sentence to encode.
+                        add_special_tokens = True, # Add '[CLS]' and '[SEP]'
+                        return_tensors = 'pt',     # Return pytorch tensors.
+                )
+
+    input_ids = encoded_dict['input_ids']
+    
+    b_model.eval()
+
+    # Run the text through the model and get the hidden states.
+    bert_outputs = b_model(input_ids)
+    
+    # Run the text through BERT, and collect all of the hidden states produced
+    # from all 12 layers. 
+    with torch.no_grad():
+
+        outputs = b_model(input_ids)
+
+        # Evaluating the model will return a different number of objects based on 
+        # how it's  configured in the `from_pretrained` call earlier. In this case, 
+        # because we set `output_hidden_states = True`, the third item will be the 
+        # hidden states from all layers. See the documentation for more details:
+        # https://huggingface.co/transformers/model_doc/bert.html#bertmodel
+        hidden_states = outputs[2]
+
+    # `hidden_states` has shape [25 x 1 x <sentence length> x 1024]
+
+    # Select the embeddings from the second to last layer. Other strategies are viable.
+    # See here: https://jalammar.github.io/illustrated-bert/
+    # `token_vecs` is a tensor with shape [<sent length> x 1024]
+    token_vecs = hidden_states[-2][0]
+
+    # either extract CLS token
+    if extract_CLS:
+        sentence_embedding = token_vecs[0]
+    # or calculate the average of all token vectors.
+    else:
+        sentence_embedding = torch.mean(token_vecs, dim=0)
+
+    # Convert to numpy array.
+    sentence_embedding = sentence_embedding.detach().numpy()
+
+    # If `word` was provided, compute an embedding for those tokens.
+    if not word == '':
+        # Take the average of the embeddings for the tokens in `word`.
+        word_embedding = torch.mean(token_vecs[word_indeces], dim=0)
+
+        # Convert to numpy array.
+        word_embedding = word_embedding.detach().numpy()
+    
+        return (sentence_embedding, word_embedding)
+    else:
+        return sentence_embedding
+
+
+# Let's see how the embeddings look like:
+
+(sent_emb, word_emb) = get_embedding(patentbert_model, patentbert_tokenizer, text, word, extract_CLS=False)
+
+sent_emb
+
+word_emb
+
+# How close are the sentence embedding and the word embedding in vector space?
+
+# +
+from scipy.spatial.distance import cosine
+
+# Calculate the cosine similarity of the two embeddings.
+sim = 1 - cosine(sent_emb, word_emb)
+
+print('Cosine similarity: {:.2}'.format(sim))
+# -
+
+# How close are embeddings of a semantically similar word embedded in a distinct sentence?
+
+# +
+from scipy.spatial.distance import cosine
+
+# Calculate the cosine similarity of the two embeddings.
+(sent_emb2, word_emb2) = get_embedding(patentbert_model, patentbert_tokenizer, text='extract carbon dioxide from air', word='carbon', extract_CLS=False)
+sim_word = 1 - cosine(word_emb2, word_emb)
+sim_sent = 1 - cosine(sent_emb2, sent_emb)
+
+print('Cosine similarity: {:.2}'.format(sim_word))
+print('Cosine similarity: {:.2}'.format(sim_sent))
+# -
+
+# Control closeness with a completely different sentence.
+
+# +
+from scipy.spatial.distance import cosine
+
+# Calculate the cosine similarity of the two embeddings.
+sim = 1 - cosine(get_embedding(patentbert_model, patentbert_tokenizer, text='This is a cosmetic studio', extract_CLS=False), sent_emb)
+
+print('Cosine similarity: {:.2}'.format(sim))
+# -
+
+from tqdm import tqdm
+tech_classes = set(df_topic_words.Topic.values)
+n_words = [10, 20, 30, 40, 50, 75, 100, 200, 250, 300] # here some more description sizes are added since sentence transformers can embedd 512 tokens at most
+semantic_vectors_patentbert = {}
+for tech_class in tqdm(tech_classes):
+    semantic_vectors_patentbert[tech_class] = {}
+    for n_word in n_words:
+        semantic_tech = ' '.join(str(i) for i in list(df_topic_words.loc[df_topic_words.Topic==tech_class].head(n_word).Word.values))
+        embedding = get_embedding(patentbert_model, patentbert_tokenizer, semantic_tech, extract_CLS=True)
+        semantic_vectors_patentbert[tech_class][n_word] = embedding
+        #if n_word>20:
+        #    break
+
+# Save semantic vectors to disk
+import pickle as pkl
+with open(here(r'.\03_Model\temp\semantic_vectors_patentbert_CLS.pkl'), 'wb') as f:
+    pkl.dump(semantic_vectors_patentbert, f)
+
+
+# Write function which extracts word embeddings for all words
+
+def get_word_embedding(b_model, b_tokenizer, text, word=''):
+    '''
+    Uses the provided model and tokenizer to produce an embedding for the
+    provided `text`, and a "contextualized" embedding for `word`, if provided.
+    '''
+    
+    # Get word indices
+    word_indeces = get_word_indeces(b_tokenizer, text, word)
+    
+    # If no index and thus no embedding exists for the word pass
+    if word_indeces.size==0:
+        pass
+    
+    # Else extract word embedding from model
+    else: 
+
+        # Encode the text, adding the (required!) special tokens, and converting to
+        # PyTorch tensors.
+        encoded_dict = b_tokenizer.encode_plus(
+                            text,                      # Sentence to encode.
+                            add_special_tokens = True, # Add '[CLS]' and '[SEP]'
+                            return_tensors = 'pt',     # Return pytorch tensors.
+                    )
+
+        input_ids = encoded_dict['input_ids']
+
+        #b_model.eval()
+
+        # Run the text through the model and get the hidden states.
+        bert_outputs = b_model(input_ids)
+
+        # Run the text through BERT, and collect all of the hidden states produced
+        # from all 12 layers. 
+        with torch.no_grad():
+
+            outputs = b_model(input_ids)
+
+            # Evaluating the model will return a different number of objects based on 
+            # how it's  configured in the `from_pretrained` call earlier. In this case, 
+            # because we set `output_hidden_states = True`, the third item will be the 
+            # hidden states from all layers. See the documentation for more details:
+            # https://huggingface.co/transformers/model_doc/bert.html#bertmodel
+            hidden_states = outputs[2]
+
+        # `hidden_states` has shape [25 x 1 x <sentence length> x 1024]
+
+        # Select the embeddings from the second to last layer. Other strategies are viable.
+        # See here: https://jalammar.github.io/illustrated-bert/
+        # `token_vecs` is a tensor with shape [<sent length> x 1024]
+        token_vecs = hidden_states[-2][0]
+        
+        # Take the average of the embeddings for the tokens in `word`.
+        word_embedding = torch.mean(token_vecs[word_indeces], dim=0)
+
+        # Convert to numpy array.
+        word_embedding = word_embedding.detach().numpy()
+
+        return (word_embedding)
+
+
+def get_contextualized_word_embeddings(word_list, b_model, b_tokenizer):
+    # Concatenate list of words with whitespaces to a string
+    word_concatenation = ' '.join(str(word) for word in word_list)
+    
+    # Create list of contextualized word embeddings
+    word_embeddings = []
+    for word in word_list:
+        word_emb = get_word_embedding(b_model=b_model, b_tokenizer=b_tokenizer, text=word_concatenation, word=word)
+        if isinstance(word_emb, np.ndarray):
+            word_embeddings.append(list(word_emb))
+    
+    return(np.array(word_embeddings))
+
+
+temp1 = get_contextualized_word_embeddings(['capture', 'co2'], patentbert_model, patentbert_tokenizer)
+temp2 = get_contextualized_word_embeddings(['extract', 'carbon', 'dioxide', 'air'], patentbert_model, patentbert_tokenizer)
+
+from sklearn.metrics.pairwise import cosine_similarity
+cosine_similarity(temp1, temp2).max(axis=0).mean()
+
+temp3 = get_contextualized_word_embeddings(['cosmetic', 'studio'], patentbert_model, patentbert_tokenizer)
+
+cosine_similarity(temp1, temp3).max(axis=0).mean()
+
+# Now create a dictionary containing the contextualized word embeddings.
+
+from tqdm import tqdm
+tech_classes = set(df_topic_words.Topic.values)
+n_words = [10, 20, 30, 40, 50, 75, 100, 200, 250, 300] # here some more description sizes are added since sentence transformers can embedd 512 tokens at most
+semantic_vectors_patentbert_words = {}
+for tech_class in tqdm(tech_classes):
+    semantic_vectors_patentbert_words[tech_class] = {}
+    for n_word in n_words:
+        semantic_tech = list(df_topic_words.loc[df_topic_words.Topic==tech_class].head(n_word).Word.values)
+        embedding = get_contextualized_word_embeddings(semantic_tech, patentbert_model, patentbert_tokenizer)
+        semantic_vectors_patentbert_words[tech_class][n_word] = embedding
+        #if n_word>10:
+        #    break
+
+# Save semantic vectors to disk
+import pickle as pkl
+with open(here(r'.\03_Model\temp\semantic_vectors_patentbert_words.pkl'), 'wb') as f:
+    pkl.dump(semantic_vectors_patentbert_words, f)

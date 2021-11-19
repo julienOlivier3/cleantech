@@ -43,6 +43,7 @@ clean_pattern <- function(string){
 
 # Simple string cleaner (2)
 clean_entry <- function(string){
+  string <- str_replace(string, pattern = "\\\\u0026", replacement = "&")
   return(gsub(pattern = '\"|\",', '', string))
 }
 
@@ -66,14 +67,42 @@ scrape_firminfo <- function(url, pattern_vector){
   text <- read_html(url) %>%
     html_text2()
 
+  
+  # Scrape detailed firm info
   start <- str_locate_all(string = text, pattern = regex('\"company\":'))[[1]][1]
   end <- str_locate_all(string = text, pattern = regex(',\"follow\":'))[[1]][1]
   company_text <- substr(text, start, end-1)
 
   entry_row <- extract_entries(company_text, pattern_vector) %>% as_tibble()
   
-  return(entry_row)
+  
+  # Scrape tags assigned to firm
+  start <- str_locate_all(string = text, pattern = regex('\"company_tags\":'))[[1]][1]
+  end <- str_locate_all(string = text, pattern = regex(',\"industry_group\":'))[[1]][1]
+  company_tags <- substr(text, start, end-1)
+    
+  starts <- str_locate_all(text, pattern = regex('\"tag\":'))[[1]][,2]
+  ends <- str_locate_all(text, pattern = regex('\"slug\":'))[[1]][,1]
+    
+  entry_list <- list()
+  if(!is_empty(starts)){
+    for (i in 1:length(starts)){
+      entry <- substr(text, starts[i]+1, ends[i]-2)
+      entry <- clean_entry(entry)
+      # Remove tags that do not represent technological fields
+      if (!str_detect(entry, '\\d')){
+        entry_list[paste0('TAG',i)] <- entry
+      }
+    }
+  }
+    
+    # Concatenate all tags into one string (comment this line if you want a list to be returned)
+  entry_tags <- paste(entry_list, collapse = '|') %>% as_tibble() %>% rename(c('tags'='value'))
+  
+  return(entry_row %>% add_column(entry_tags))
 }
+
+
 
 # Cache function scrape_firminfo
 # Define cache_dir inside the function
@@ -88,9 +117,9 @@ cached_scrape_firminfo <- memoise(scrape_firminfo, cache = cache_filesystem(cach
 # Create empty tibble for final results
 df_cleantech <- tibble()
 
-# The Cleantech-100 list exists for all years from 2009-2021. Adding the year to the base url
-# leads to the respective year list
-for (year in (2017:2021)){
+# The Cleantech-100 list exists for all years from 2009-2021 (except 2016). 
+# Adding the year to the base url leads to the respective year list
+for (year in c(2009:2015,2017:2021)){
   # First, scrape the base table 
   url <- "https://i3connect.com/gct100/the-list/"
   base_table <- scrape_tab(paste0(url, year))
@@ -153,7 +182,9 @@ for (year in (2017:2021)){
     na_if("") %>% 
     na_if("N/A") %>% 
     mutate(primary_tag = str_replace(primary_tag, pattern = "\\\\u0026", replacement = "&"),
-           industry_group = str_replace(industry_group, pattern = "\\\\u0026", replacement = "&")) %>% 
+           #industry_group = str_replace(industry_group, pattern = "\\\\u0026", replacement = "&")
+           year = year
+           ) %>% 
     clean_names("all_caps") %>% 
     type_convert()
   
@@ -167,11 +198,11 @@ for (year in (2017:2021)){
 
 # Save to file
 df_cleantech %>% 
-  distinct() %>% # drop duplicates
+  #distinct() %>% # drop duplicates
   write_delim(here("01_Data/02_Firms/df_cleantech_firms.txt"), delim = '\t')
 
 # Save for labeling
 df_cleantech %>% 
   distinct() %>% 
-  select(ID, WEBSITE, PRIMARY_TAG, SHORT_DESCRIPTION, OVERVIEW, PRODUCTS_DESCRIPTION) %>% 
-  write.xlsx(here("01_Data/02_Firms/df_cleantech_firms_label.xlsx"))
+  select(ID, WEBSITE, PRIMARY_TAG, SHORT_DESCRIPTION, OVERVIEW, PRODUCTS_DESCRIPTION) #%>% 
+#  write.xlsx(here("01_Data/02_Firms/df_cleantech_firms_label.xlsx"))
