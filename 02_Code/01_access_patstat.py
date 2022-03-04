@@ -15,7 +15,7 @@
 
 # # Connect to PATSTAT and Extract Patent Data of German Companies
 
-# ## Setup
+# # Setup
 
 import config # configuration files includes API keys and paths
 import pandas as pd
@@ -27,7 +27,7 @@ from tqdm import tqdm
 import pickle as pkl
 
 # + [markdown] jp-MarkdownHeadingCollapsed=true tags=[]
-# ## Extract Data 
+# # Extract Data 
 # -
 
 # The following functions connect to the PATSTAT database.
@@ -39,6 +39,8 @@ engine = create_engine(patstat_connection_string) # engine leads to PATSTAT
 # Check whether connection has been successfully established.
 
 pd.read_sql("SELECT * FROM all_synonyms WHERE table_owner = 'PAT2'", engine).head(3)
+
+# ## All patents of German firms 
 
 # In the following aplication we analyze PATSTAT patent applications from companies found in the Mannheim Enterprise Panel (MUP).
 
@@ -134,6 +136,16 @@ df_temp = df_abs.loc[(df_abs.ABSTRACT_LANG!='en') & (df_abs.ABSTRACT_LANG.notnul
 df_temp.head(3)
 
 
+# ## All Y02 patents 
+
+# Alternatively, all Y02 patents that have been filed at EPO can be selected as corpus basis.
+
+# +
+# Deprecated
+# -
+
+# # Clean data 
+
 # The problem with the non-English abstracts is that their encoding (umlaute, accents, etc.) is erroneous. So, first we need to get the encoding right.
 
 # Function to correct encoding
@@ -201,6 +213,8 @@ df_abs
 
 df_cpcs = pd.read_csv(here("./01_Data/01_Patents/epo2vvc_cpc_classes.txt"), sep='\t', encoding='utf-8')
 
+df_cpcs.shape
+
 df_cpcs.head(3)
 
 # Uppercase column names and convert APPLN_ID as integer variable
@@ -225,13 +239,32 @@ df_cpc['CPC'] = df_cpc.CPC_CLASS_SYMBOL.apply(lambda x: re.search(r'A|B|C|D|E|F|
 
 df_cpc.CPC.value_counts(dropna=False)
 
+# Remove redundant whitespaces in CPC_CLASS_SYMBOL
+df_cpc['CPC_CLASS_SYMBOL'] = df_cpc.CPC_CLASS_SYMBOL.apply(lambda x: re.sub(' +', ' ', x))
+
+# Get CPC group
+df_cpc['CPC_GROUP'] = df_cpc.CPC_CLASS_SYMBOL.apply(lambda x: re.sub(r'/\d{1,}', '', x))
+
 # Create seperate Y02 class column
 df_cpc['Y02'] = df_cpc.CPC_CLASS_SYMBOL.apply(lambda x: re.search(r'Y02\w{1}', x).group(0) if re.search(r'Y02\w{1}', x) else np.nan)
 
 df_cpc.Y02.value_counts(dropna=False)
 
-# Drop duplicates in APPLN_ID, CPC and Y02
-df_cpc = df_cpc[['APPLN_ID', 'CPC', 'Y02']].drop_duplicates().reset_index(drop=True)
+# Alternatively, it seems to be more practical to create clean-tech market indicators following the mapping in the file below.
+
+df_map = pd.read_excel(here('./01_Data/02_Firms/df_cleantech_firms_label.xlsx'), sheet_name='Tag2CPC')
+
+# Create a mapping dictionary from CLEANTECH_MARKET to relevant CPCs
+df_map = df_map.loc[df_map.ABBREVIATION.notnull() & df_map.CPC.notnull(),]
+tech2market = dict(zip(df_map['CPC'], df_map['ABBREVIATION']))
+
+# First map all detailed CPC class symbols, second map the remaining according the cpc group, third fill the CPC class to the non-cleantech lines
+df_cpc['CLEANTECH_MARKET'] = df_cpc.CPC_CLASS_SYMBOL.map(tech2market)
+df_cpc.loc[df_cpc['CLEANTECH_MARKET'].isnull(), 'CLEANTECH_MARKET'] = df_cpc.loc[df_cpc['CLEANTECH_MARKET'].isnull(), 'CPC_GROUP'].map(tech2market)
+df_cpc.loc[df_cpc['CLEANTECH_MARKET'].isnull(), 'CLEANTECH_MARKET'] = df_cpc.loc[df_cpc['CLEANTECH_MARKET'].isnull(), 'CPC']
+
+# Drop duplicates in APPLN_ID, CPC, Y02 and CLEANTECH_MARKET
+df_cpc = df_cpc[['APPLN_ID', 'CPC', 'Y02', 'CLEANTECH_MARKET']].drop_duplicates().reset_index(drop=True)
 
 df_cpc.shape
 
@@ -272,7 +305,9 @@ agg_cpc(['Y02A', 'Y02B', 'A', 'B', 'C'])
 # Aggregate patent data from CPC level to patent level.
 
 # Apply agg_cpc()
-df_pat = df_cpc.groupby('APPLN_ID').agg({'CPC': lambda x: list(set(x))}).reset_index()
+df_pat = df_cpc.groupby('APPLN_ID').agg({
+    'CPC': lambda x: list(set(x)),
+    'CLEANTECH_MARKET': lambda x: list(set(x))}).reset_index()
 df_pat['Y02_dict'] = df_pat.CPC.apply(lambda x: agg_cpc(x))
 
 df_pat.shape
@@ -291,8 +326,6 @@ df_pat.Y02.value_counts(normalize=True)
 # 7% of patents are cleantech-related patents.
 
 # Merge abstract texts
-
-df_abs.shape
 
 df_abs.dtypes
 
@@ -345,9 +378,7 @@ for index, row in tqdm(df_pat.iterrows()):
 #        break
 len(vocs)
 
-# + active=""
-# df_pat.to_pickle(here(r".\01_Data\01_Patents\epo2vvc_patents.pkl"))
-# -
+df_pat.to_pickle(here(r".\01_Data\01_Patents\epo2vvc_patents.pkl"))
 
 # ### Firm Level 
 

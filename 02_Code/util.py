@@ -56,6 +56,52 @@ def translation_handler(x):
     return res
 
 
+def TP(true, pred):
+    return ((true==1) & (pred==1)).sum()
+
+
+def TN(true, pred):
+    return ((true==0) & (pred==0)).sum()
+
+
+def FP(true, pred):
+    return ((true==0) & (pred==1)).sum()
+
+
+def FN(true, pred):
+    return ((true==1) & (pred==0)).sum()
+
+
+def ACC(true, pred):
+    tp = TP(true, pred)
+    tn = TN(true, pred)
+    fp = FP(true, pred)
+    fn = FN(true, pred)
+    return (tp + tn)/(tp + tn + fp + fn)
+
+
+def RECALL(true, pred):
+    tp = TP(true, pred)
+    fn = FN(true, pred)
+    return (tp)/(tp + fn)
+
+
+def PRECISION(true, pred):
+    tp = TP(true, pred)
+    fp = FP(true, pred)
+    return (tp)/(tp + fp)
+
+
+def F(true, pred, beta=1):
+    rec = PRECISION(true, pred)
+    prec = RECALL(true, pred)
+    return ((1+beta**2)*prec*rec)/((beta**2*prec) + rec)
+
+
+
+
+
+
 
 # Open dataframe in new tab
 from IPython.display import HTML
@@ -191,9 +237,9 @@ def cosine_similarity_vectors(v1, v2):
 from transformers import AutoTokenizer, AutoModel
 import torch
 
-patentbert_model = AutoModel.from_pretrained("anferico/bert-for-patents",
-                                  output_hidden_states=True)
-patentbert_tokenizer = AutoTokenizer.from_pretrained("anferico/bert-for-patents")
+#patentbert_model = AutoModel.from_pretrained("anferico/bert-for-patents",
+#                                  output_hidden_states=True)
+#patentbert_tokenizer = AutoTokenizer.from_pretrained("anferico/bert-for-patents")
 
 import numpy as np
 
@@ -401,3 +447,7 @@ def get_contextualized_word_embeddings_sbert(keyword_list, encoder, tokenizer, o
         return(np.array(embed_vecs))
     else:
         return output
+
+
+
+

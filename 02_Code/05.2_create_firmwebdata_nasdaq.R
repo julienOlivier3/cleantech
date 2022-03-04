@@ -91,6 +91,10 @@ cached_scrape_firminfo <- memoise(scrape_firminfo, cache = cache_filesystem(cach
 
 
 # Scraping ----------------------------------------------------------------
+
+## NASDAQ 100 =============================================================
+
+
 # First, scrape the base table 
 data <- fromJSON(paste(readLines(here('01_Data/02_Firms/nasdaq.json')), collapse=""))
 
@@ -125,3 +129,44 @@ df_nasdaq <- df_nasdaq %>%
 # Save to file
 df_nasdaq %>% 
   write_delim(here("01_Data/02_Firms/df_nasdaq_firms.txt"), delim = '\t')
+
+
+
+## NASDAQ all =============================================================
+
+base_table_nasdaq <- read_csv(here("01_Data/02_Firms/nasdaq.csv"))
+base_table_nasdaq <- base_table_nasdaq %>% 
+  mutate(NASDAQ=1) %>% 
+  select(Symbol, NASDAQ)
+base_table <- read_csv(here("01_Data/02_Firms/nasdaq_nyse_amex.csv"))
+base_table <- base_table %>% left_join(base_table_nasdaq)
+
+pattern_vector <- c(
+  '\"businessSummary\":',
+  '\"industryClassification\":',
+  '\"websiteLink\":',
+  '\"address\":',
+  '\"officers\":'
+)
+
+df_nasdaq <- pblapply(base_table$Symbol, function(url){
+  tryCatch(cached_scrape_firminfo(url, pattern_vector) %>% bind_cols("Symbol" = url), error=function(e) NULL)
+}) %>% bind_rows()
+
+
+# Clean data
+df_nasdaq <- df_nasdaq %>% 
+  mutate(websiteLink = str_replace_all(websiteLink, pattern = "\\\\u002F", replacement = "/")) %>% 
+  clean_names("all_caps") %>% 
+  type_convert() %>% 
+  select(SYMBOL, WEBSITE_LINK, BUSINESS_SUMMARY, everything())
+
+# Add business summaries to base table
+df_nasdaq <- base_table %>%
+  clean_names("all_caps") %>% 
+  left_join(df_nasdaq) %>% 
+  select(SYMBOL, NAME, BUSINESS_SUMMARY, WEBSITE_LINK, NASDAQ, everything()) 
+
+# Save to file
+df_nasdaq %>% 
+  write_delim(here("01_Data/02_Firms/df_all_stocks_firms.txt"), delim = '\t')
