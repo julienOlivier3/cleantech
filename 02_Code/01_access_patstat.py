@@ -261,17 +261,21 @@ tech2market = dict(zip(df_map['CPC'], df_map['ABBREVIATION']))
 # First map all detailed CPC class symbols, second map the remaining according the cpc group, third fill the CPC class to the non-cleantech lines
 df_cpc['CLEANTECH_MARKET'] = df_cpc.CPC_CLASS_SYMBOL.map(tech2market)
 df_cpc.loc[df_cpc['CLEANTECH_MARKET'].isnull(), 'CLEANTECH_MARKET'] = df_cpc.loc[df_cpc['CLEANTECH_MARKET'].isnull(), 'CPC_GROUP'].map(tech2market)
+df_cpc.loc[df_cpc['CLEANTECH_MARKET'].isnull(), 'CLEANTECH_MARKET'] = df_cpc.loc[df_cpc['CLEANTECH_MARKET'].isnull(), 'CPC'].map(tech2market)
 df_cpc.loc[df_cpc['CLEANTECH_MARKET'].isnull(), 'CLEANTECH_MARKET'] = df_cpc.loc[df_cpc['CLEANTECH_MARKET'].isnull(), 'CPC']
 
 # Drop duplicates in APPLN_ID, CPC, Y02 and CLEANTECH_MARKET
-df_cpc = df_cpc[['APPLN_ID', 'CPC', 'Y02', 'CLEANTECH_MARKET']].drop_duplicates().reset_index(drop=True)
+df_cpc = df_cpc[['APPLN_ID', 'CPC', 'CLEANTECH_MARKET']].drop_duplicates().reset_index(drop=True)
 
 df_cpc.shape
+
+# Create seperate cleantech class column
+df_cpc['Y02'] = df_cpc.CLEANTECH_MARKET.apply(lambda x: 1 if x in ['Water', 'E-Efficiency', 'Generation', 'Biofuels', 'Materials', 'Adaption', 'CCS', 'Grid', 'ICT', 'Battery', 'E-Mobility'] else np.nan)
 
 # For aggregating from CPC level to patent level we want to know how much percent of the patent relates to which CPC class.
 
 from collections import Counter
-Counter(['Y02A', 'Y02B', 'A', 'B', 'C'])
+Counter(['Generation', 'Generation', 'Biofuels', 'A', 'B', 'C'])
 
 
 # This function calculates the relative importance of the CPC class for the patent
@@ -284,12 +288,12 @@ def counter_to_relative(x):
     return relative
 
 
-counter_to_relative(['Y02A', 'Y02B', 'A', 'B', 'C'])
+counter_to_relative(['Generation', 'Generation', 'Biofuels', 'A', 'B', 'C'])
 
 
 # This function extracts the relative importance of the Y02 classes only
 def agg_cpc(x):
-    y02s = ['Y02A', 'Y02B', 'Y02C', 'Y02D', 'Y02E', 'Y02P', 'Y02T', 'Y02W']
+    y02s = ['Water', 'E-Efficiency', 'Generation', 'Biofuels', 'Materials', 'Adaption', 'CCS', 'Grid', 'ICT', 'Battery', 'E-Mobility']
     if any([cpc for cpc in x if cpc in y02s]):
         relative = counter_to_relative(x)
         relative_y02 = {i: relative[i] for i in y02s if relative.get(i) is not None}
@@ -298,7 +302,7 @@ def agg_cpc(x):
         return {}
 
 
-agg_cpc(['Y02A', 'Y02B', 'A', 'B', 'C'])
+agg_cpc(['Generation', 'Generation', 'Biofuels', 'A', 'B', 'C'])
 
 # ### Patent Level 
 
@@ -308,7 +312,7 @@ agg_cpc(['Y02A', 'Y02B', 'A', 'B', 'C'])
 df_pat = df_cpc.groupby('APPLN_ID').agg({
     'CPC': lambda x: list(set(x)),
     'CLEANTECH_MARKET': lambda x: list(set(x))}).reset_index()
-df_pat['Y02_dict'] = df_pat.CPC.apply(lambda x: agg_cpc(x))
+df_pat['Y02_dict'] = df_pat.CLEANTECH_MARKET.apply(lambda x: agg_cpc(x))
 
 df_pat.shape
 
@@ -327,14 +331,18 @@ df_pat.Y02.value_counts(normalize=True)
 
 # Merge abstract texts
 
+# Read patent data
+df_abs = pd.read_pickle(here(r'.\01_Data\01_Patents\epo2vvc_patents.pkl'))
+df_abs.shape
+
+df_abs=df_abs[['APPLN_ID', 'ABSTRACT_LANG' ,'ABSTRACT_LEN', 'ABSTRACT', 'LEMMAS']]
+
 df_abs.dtypes
-
-df_pat.shape
-
-df_pat.dtypes
 
 # Adjust dtype of ID variable in df_pat
 df_pat['APPLN_ID'] = df_pat.APPLN_ID.astype(str)
+
+df_pat.shape
 
 df_pat.dtypes
 
