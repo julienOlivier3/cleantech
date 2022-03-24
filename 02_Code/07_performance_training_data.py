@@ -253,11 +253,11 @@ df_metric.loc[df_metric.groupby('TECHNOLOGY')['F-SCORE'].idxmax()]
 
 c, clean, c_tech, c_emb = allcompany2embedding(df, df_sp, model, columns=['SHORT_DESCRIPTION'], stop_words = [], lemmatize=False)
 
-# + active=""
+# + tags=[] active=""
 # # Save results
+# c_embs = {'c': c, 'clean': clean, 'c_tech': c_tech, 'c_emb': c_emb}
 # with open(here('./01_Data/02_Firms/company_embeddings.pkl'), 'wb') as f:
 #     pkl.dump(c_embs, f)
-# c_embs = {'c': c, 'clean': clean, 'c_tech': c_tech, 'c_emb': c_emb}
 
 # + tags=[]
 # Embeddings and cosine similarity
@@ -342,11 +342,6 @@ df_metric.loc[df_metric.groupby('TECHNOLOGY')['F-SCORE_nc'].idxmax()]
 
 # Do a dev-test split to conduct tuning of hyperparameters n_words and threshold and then evaluate performance on test set.
 
-temp = df_prox.loc[df_prox.CLEANTECH==0].groupby('COMPANY').agg({'TECHNOLOGY_PROXIMITY': max}).sort_values('TECHNOLOGY_PROXIMITY', ascending=False)
-temp
-
-df_sp.loc[df_sp.SYMBOL.isin(temp.head(20).index), ['SYMBOL', 'SECURITY', 'GICS_SUB_INDUSTRY', 'BUSINESS_SUMMARY']].style
-
 # +
 # Create dev and test data
 np.random.seed(3)
@@ -410,6 +405,13 @@ df_metric = pd.DataFrame(class_metrics, columns=['N_WORDS', 'THRESHHOLD', 'ACCUR
 # -
 
 df_metric
+
+# Check false positives.
+
+temp = df_prox.loc[df_prox.CLEANTECH==0].groupby('COMPANY').agg({'TECHNOLOGY_PROXIMITY': max}).sort_values('TECHNOLOGY_PROXIMITY', ascending=False)
+temp
+
+df_sp.loc[df_sp.SYMBOL.isin(temp.head(5).index), ['SYMBOL', 'SECURITY', 'GICS_SUB_INDUSTRY', 'BUSINESS_SUMMARY']].style
 
 
 # + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true
