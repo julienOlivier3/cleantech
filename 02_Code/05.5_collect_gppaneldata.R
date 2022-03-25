@@ -1,13 +1,10 @@
 # Setup -------------------------------------------------------------------
-setwd("Q:\\Meine Bibliotheken\\Research\\Green_startups")
-
-# Read packages -----------------------------------------------------------
-library("tidyverse")
-library("haven")
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, here, haven)
+source(here("02_Code/util.R"))
 
 
-
-# Read data ---------------------------------------------------------------
+# Clean data ---------------------------------------------------------------
 
 df_raw <- read_delim(file = file.path(getwd(), "02_Data", "02_Gründungspanel", "gp18_labels", "df_GP18_sustain_question.txt"),
                      delim = "\t")
