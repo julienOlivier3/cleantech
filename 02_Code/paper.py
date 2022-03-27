@@ -34,7 +34,7 @@ from sentence_transformers import util
 model = SentenceTransformer('paraphrase-MiniLM-L12-v2')
 model._first_module().max_seq_length = 510 # increase maximum sequence length which is 128 by default
 
-# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[]
+# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true tags=[]
 # # Patent corpus 
 
 # + [markdown] jp-MarkdownHeadingCollapsed=true tags=[]
@@ -47,17 +47,30 @@ df_pat.shape
 
 df_pat.loc[df_pat.Y02==1].head(5)
 
-# + [markdown] jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[]
-# ## Patent count 
+# + [markdown] jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true
+# ## Patent descriptives
 # -
 
 # Drop patents without abstract
 df_pat = df_pat.loc[df_pat.LEMMAS.notnull()]
 
+from util import nlp
+
+tqdm.pandas()
+
+df_temp = df_pat
+df_temp['TOKEN_LEN'] = df_temp.ABSTRACT.progress_apply(lambda x: len(nlp(x)))
+df_temp['DIGIT_LEN'] = df_temp.ABSTRACT.progress_apply(lambda x: len(x))
+
+# Remove patents with less than 8 tokens as they are noicy
+df_pat = df_temp.loc[df_temp.TOKEN_LEN >= 8]
+
 print(' Number of patents: ', len(df_pat.APPLN_ID.drop_duplicates()), '\n',
       'Number of cleantech patents: ', len(df_pat.loc[df_pat.Y02==1].APPLN_ID.drop_duplicates()))
 
-# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true tags=[]
+df_pat.TOKEN_LEN.describe()
+
+# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true
 # ## Patent classes 
 # -
 
@@ -142,7 +155,7 @@ heatm = sns.heatmap(corr,
 
 plot = heatm.set_yticklabels(heatm.get_yticklabels(), rotation=0)
 
-# + [markdown] jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true
+# + [markdown] jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true
 # ## Semantic technology descriptions
 # -
 
@@ -208,7 +221,7 @@ df_excel
 # Save to disk
 df_excel.to_excel(here(r'.\03_Model\temp\df_topic_words_markets.xlsx'), encoding='utf-8')
 
-# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true
+# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true
 # # Technology embeddings 
 # -
 
@@ -307,7 +320,7 @@ plt.annotate('', xy=(-35,-17), xytext=(-30,+15), textcoords='offset points',
 
 plt.annotate('', xy=(-20,10), xytext=(-20,+35), textcoords='offset points',
              fontsize=16, arrowprops=dict(facecolor='red', connectionstyle='arc3,rad=.1'))
-# + [markdown] tags=[]
+# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true tags=[]
 # # Proximity measure 
 
 
@@ -354,6 +367,26 @@ df_clean = df_clean.loc[df_clean.CLEANTECH_MARKET.notnull()]
 
 print(f"There are {len(df_clean)} distinct cleantech firms in the sample of business summaries.")
 
+# Show descriptives.
+
+from util import nlp
+
+tqdm.pandas()
+
+df_clean['TOKEN_LEN'] = df_clean.SHORT_DESCRIPTION.progress_apply(lambda x: len(nlp(x)))
+df_clean['DIGIT_LEN'] = df_clean.SHORT_DESCRIPTION.progress_apply(lambda x: len(x))
+df_clean['TOKENS'] = df_clean.SHORT_DESCRIPTION.progress_apply(lambda x: [token for token in nlp(x)])
+
+df_clean.TOKEN_LEN.describe()
+
+# Vocabulary size
+df_clean = df_clean.reset_index(drop=True)
+vocab_list = []
+for i in range(df_clean.shape[0]):
+    temp = df_clean.iloc[i].TOKENS
+    vocab_list.extend(temp)
+len(set(vocab_list))
+
 # Load the scraped S&P 500 firms.
 
 df_sp = pd.read_csv(here('01_Data/02_Firms/df_all_sp_firms.txt'), sep='\t')
@@ -378,6 +411,20 @@ df_sp = df_sp.loc[~df_sp.SYMBOL.isin(drop)]
 # How many cleantech firms are in the label?
 
 print(f"There are {len(df_sp)} distinct S&P 500 firms in the sample of business summaries that are not on the Cleantech 100 list.")
+
+df_sp['TOKEN_LEN'] = df_sp.BUSINESS_SUMMARY.progress_apply(lambda x: len(nlp(x)))
+df_sp['DIGIT_LEN'] = df_sp.BUSINESS_SUMMARY.progress_apply(lambda x: len(x))
+df_sp['TOKENS'] = df_sp.BUSINESS_SUMMARY.progress_apply(lambda x: [token for token in nlp(x)])
+
+df_sp.TOKEN_LEN.describe()
+
+# Vocabulary size
+df_sp = df_sp.reset_index(drop=True)
+vocab_list = []
+for i in range(df_sp.shape[0]):
+    temp = df_sp.iloc[i].TOKENS
+    vocab_list.extend(temp)
+len(set(vocab_list))
 
 
 # Text concatenator
@@ -474,27 +521,30 @@ df_prox = df_prox.loc[df_prox.TECHNOLOGY!='ICT']
 df_temp = df_prox.groupby(['COMPANY', 'N_WORDS']).agg({'TECHNOLOGY_PROXIMITY': max}).reset_index().merge(df_prox.groupby(['COMPANY', 'CLEANTECH', 'TECHNOLOGY', 'N_WORDS']).agg({'TECHNOLOGY_PROXIMITY': max}).reset_index())
 df_temp
 
-# +
-fig, axes = plt.subplots(figsize=(9,5), ncols=1, nrows=1)
-
-
+#fig, axes = plt.subplots(figsize=(9,5), ncols=1, nrows=1)
+plt.figure(figsize=(9,5))
 palette = {0: 'lightgrey', 1: 'green'}
 ax = sns.boxplot(
     x="N_WORDS", y="TECHNOLOGY_PROXIMITY", hue="CLEANTECH",
-    data=df_temp.loc[df_temp.N_WORDS.isin([i for i in n_words if i not in [21, 22, 23, 24, 25, 26, 27, 28, 29, 220, 240, 260, 280, 300]])], 
-    linewidth=1, whis=(1, 99), fliersize=1.5, palette=palette, showfliers=True)
+    #data=df_temp.loc[df_temp.N_WORDS.isin([i for i in n_words if i not in [21, 22, 23, 24, 25, 26, 27, 28, 29, 220, 240, 260, 280, 300]])], 
+    data=df_temp.loc[df_temp.N_WORDS.isin([1, 10, 15, 20 , 30, 40, 60, 80, 100, 120, 140, 160, 180, 200])], 
+    linewidth=1, 
+    #whis=(1, 99), 
+    fliersize=1.5, palette=palette, showfliers=True)
 #ax.set_title('Proximity to ' + tech + ' (based on $N_{' + tech + '}$ = ' + str(N_true) + ', ' + '$N_{non-' + tech + '}$ = ' + str(N_false) + ')')
-ax.set_xlabel('Number of words in technology descriptions ($Q$)')
+ax.set_xlabel('Number of words used for technology descriptions ($Q$)')
 ax.set_ylabel(r'Technological proximity')
 ax.legend_.set_title('Label')
 new_labels = ['non-cleantech', 'cleantech']
 for t, l in zip(ax.legend_.texts, new_labels):
     t.set_text(l)
 #plt.suptitle("Technological proximity based on labeled cleantech firms", size=16)
+ax.axhline(y=0.27, xmin=0, xmax=0.05, linestyle='--', linewidth=1, color='r')
+ax.axhline(y=0.27, xmin=0.205, linestyle='--', linewidth=1, color='r')
+ax.text(x=0.4, y=0.265, s=r'\textsc{TechProx}$_{min}$', fontsize=10)
 fig.tight_layout()
 fig.subplots_adjust(top=0.95)
 plt.show()
-# -
 
 # Do a dev-test split to conduct tuning of hyperparameters n_words and threshold and then evaluate performance on test set.
 
@@ -563,7 +613,7 @@ df_metric = pd.DataFrame(class_metrics, columns=['N_WORDS', 'THRESHHOLD', 'ACCUR
 
 print(classification_report(true, pred))
 
-# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true
+# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[]
 # ## Property 2 
 # -
 
@@ -613,97 +663,55 @@ df_search.groupby('TECHNOLOGY').apply(lambda x: aggregate_by_cleantech(x, th=0.2
 df_CCS = df_temp.loc[df_temp.TECHNOLOGY=='CCS'].sort_values('TECHNOLOGY_PROXIMITY', ascending=False).head(10)
 df_CCS.merge(df_clean[['ID', 'SHORT_DESCRIPTION']], left_on='COMPANY', right_on='ID')[['COMPANY', 'TECHNOLOGY_PROXIMITY', 'SHORT_DESCRIPTION']].style
 
+# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true
 # # Clean technologies and entrepreneurship 
+# -
 
-# ## Preparation 
+# Load embedded texts.
 
-# First create startup and technology embeddings.
+df_startup = pd.read_csv(here("01_Data/02_Firms/03_StartupPanel/df_gp_impute.txt"), sep="\t")
+df_startup.rename(columns={'E_Mobility': 'E-Mobility', 'E_Efficiency': 'E-Efficiency'}, inplace=True)
+df_startup.shape
 
-df_startup = pd.read_csv(here('01_Data/02_Firms/df_startup_firms_en.txt'), sep='\t', encoding='utf-8')
+# Descriptives company descriptions
 
-print(f"The data comprises {df_startup.shape[0]} startups.")
+print(f"There are {len(df_startup)} distinct start-ups in the survey for which business summaries exist.")
 
-# Drop samples without company description.
+df_startup['TOKEN_df_startup = df_startup.text_en.progress_apply(lambda x: len(nlp(x)))
+df_startup['DIGIT_LEN'] = df_startup.text_en.progress_apply(lambda x: len(x))
+df_startup['TOKENS'] = df_startup.text_en.progress_apply(lambda x: [token for token in nlp(x)])
 
-df_startup = df_startup.loc[df_startup.LONG_DESCRIPTION_en.notnull()]
-df_startup.reset_index(inplace=True, drop=True)
+df_startup.TOKEN_LEN.describe()
 
-print(f"For {df_startup.shape[0]} startups a company description exists.")
+# Vocabulary size
+df_startup = df_startup.reset_index(drop=True)
+vocab_list = []
+for i in range(df_startup.shape[0]):
+    temp = df_startup.iloc[i].TOKENS
+    vocab_list.extend(temp)
+len(set(vocab_list))
 
+cleantech_fields = ['Adaption', 'Battery', 'Biofuels', 'CCS',  'E-Mobility', 'E-Efficiency', 'Grid', 'Generation', 'Materials', 'Water']
 
-# Company Embeddings (all)
-def company2embedding(df, model, stop_words = [], lemmatize=True):
-       
-    company = df.index.values
-    
-    # Lemmatization, stop word removal and sentence embedding
-    if lemmatize:
-        # Conduct lemmatization
-        df['LONG_DESCRIPTION_en'] = df.DESC.apply(lambda x: string_to_lemma(x))
-        # Remove stop words
-        df['LONG_DESCRIPTION_en'] = df.DESC.apply(lambda x: [word for word in x if word not in stop_words])
-        # Concatenate list of words to whitespace seperated string
-        df['LONG_DESCRIPTION_en'] = df.DESC.apply(lambda x: ' '.join(str(i) for i in x))
-        # Create numpy array of sentence embedding
-        embeddings = model.encode(df.LONG_DESCRIPTION_en.values, show_progress_bar=True)
-    
-    # Stop word removal Sentence embedding
-    else:
-        # Remove stop words
-        #df['DESC'] = df.DESC.apply(lambda x: ' '.join(word.lower() for word in x.split() if word.lower() not in stop_words))
-        # Create numpy array of sentence embedding
-        embeddings = model.encode(df.LONG_DESCRIPTION_en.values, show_progress_bar=True)
-
-    return(company, embeddings)
-
-
-c, c_emb = company2embedding(df_startup, model=model, stop_words=[], lemmatize=False)
-
-# Read topic-proba-df
-df_topic_words = pd.read_csv(here(r'.\03_Model\temp\df_topic_words_markets.txt'), sep='\t', encoding='utf-8', index_col='Unnamed: 0')
-
-
-# Technology Embedding
-def technology2embedding(df, model, technology, n_words):
-    semantic_tech = ' '.join(str(word).lower() for word in list(df.loc[df.Topic==technology].head(n_words).Word.values))
-    embedding = model.encode(semantic_tech).reshape(1, -1)
-
-    return(embedding)
-
-
-# Now calculate proximity.
-
-# Embeddings and cosine similarity
-tech_proxs = []
-techs = cleantech_fields
-n_word = 15
-for tech in tqdm(techs):
-    t_emb = technology2embedding(df_topic_words, model, technology=tech, n_words=n_word)
-    tech_prox = cosine_similarity(c_emb, t_emb).reshape(len(c_emb),)
-    tech_prox[tech_prox < 0] = 0
-    tech_proxs.append(pd.DataFrame({'COMPANY': c, 'TECHNOLOGY': tech, 'TECHNOLOGY_PROXIMITY': tech_prox}))
-    df_prox = pd.concat(tech_proxs)
-
-df_prox.sort_values('TECHNOLOGY_PROXIMITY', ascending=False).head(20)
-
-df_startup = df_startup.merge(df_prox.pivot(index='COMPANY', columns='TECHNOLOGY', values='TECHNOLOGY_PROXIMITY'), left_index=True, right_index=True)
-
-df_temp = df_startup[['NAME', 'LONG_DESCRIPTION_en', 'Biofuels', 'Battery', 'CCS', 'Water', 'Adaption', 'E-Efficiency', 'Materials', 'E-Mobility', 'Grid', 'Generation']]
-
-df_temp.sort_values('Generation', ascending=False).head(5).style
-
-df_startup.to_csv(here('01_Data/02_Firms/df_startup_firms_en_prox.txt'), sep='\t', index=False)
-
-pal = sns.cubehelix_palette(n_colors=10, start=2, rot=0, dark=0.35, light=0.9, reverse=False, as_cmap=False)
+df_prox = pd.melt(df_startup[cleantech_fields], var_name="Clean technology field", value_name="Technological proximity")
+df_prox.loc[df_prox["Technological proximity"].notnull()]
 
 # +
-plt.figure(figsize = (12, 8))
-
+plt.rcParams['text.usetex'] = True
+plt.figure(figsize = (9, 5))
 sns.set(style="whitegrid")
+palette = sns.cubehelix_palette(n_colors=10, start=2, rot=0, dark=0.35, light=0.9, reverse=False, as_cmap=False)
 
-
-ax = sns.swarmplot(x="TECHNOLOGY", y="TECHNOLOGY_PROXIMITY", data=df_prox, palette=pal,
-                   dodge=True, alpha=0.5)
-ax = sns.boxplot(x="TECHNOLOGY", y="TECHNOLOGY_PROXIMITY", data=df_prox, showfliers = False, color='lightgray')
-
+#ax = sns.swarmplot(x="Clean technology field", y="Technological proximity", data=df_prox, palette=pal,
+#                   dodge=True, alpha=0.5)
+ax = sns.boxplot(x="Clean technology field", y="Technological proximity", data=df_prox, color='lightgray',
+                linewidth=1, 
+                #whis=(1, 99), 
+                palette=palette, 
+                showfliers=True, 
+                boxprops=dict(alpha=.4), 
+                flierprops=dict(markerfacecolor="r", markersize=5, linestyle='none', markeredgecolor='r', alpha=0.8))
+ax.axhline(y=0.27, xmin=0, xmax=0.03, linestyle='--', linewidth=1, color='r')
+ax.axhline(y=0.27, xmin=0.18, linestyle='--', linewidth=1, color='r')
+ax.text(x=-0.1, y=0.265, s=r'\textsc{TechProx}$_{min}$', fontsize=10)
 plt.show()

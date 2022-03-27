@@ -48,11 +48,34 @@ df_raw %>%
   write_delim(here("01_Data/02_Firms/df_gp.txt"), delim = '\t')
 
 
+# Add further GP variables ------------------------------------------------
+df_raw <- read_delim(file = here("01_Data/02_Firms/03_StartupPanel/df_GP18_sustain_question.txt"), delim = "\t")
+df_startup <- read_delim(here("01_Data/02_Firms/df_gp_en_prox2.txt"), delim = '\t')
+df_startup <- df_raw %>% 
+  left_join(df_startup[c("crefo",  "gruend_jahr", "length", "text", "text_en", "web", "Adaption", "Battery", "Biofuels", "CCS", "E-Efficiency", "E-Mobility", "Generation", "Grid", "Materials", "Water" )])
+
 df_gp <- read_dta(file = file.path("T:\\2018\\Datenaufbereitung\\!Gesamtdaten\\gpges_kern_w1-w11.dta"))
+df_gp_spez <- read_dta(file = file.path("T:\\2018\\Datenaufbereitung\\!Gesamtdaten\\gpges_spez_w11.dta"))
+
+df_gp <- df_gp %>% 
+  filter(gpkey %in% df_startup$gpkey) %>% 
+  filter(jahr == 2017) %>% 
+  select(gpkey, jahr, gr_jahr, branche11, team, anzteam, fue, fuep, fuex, fuek, umsj, ums, gewj, gew, kapa, patj, anzpat, contains("foe"), contains("inno"), contains("produkt")) %>% 
+  left_join(df_gp_spez %>% select("gpkey", contains("umwelt")))
+
+cleantech_fields <- c("Adaption", "Battery", "Biofuels", "CCS", "E-Efficiency", "E-Mobility", "Generation", "Grid", "Materials", "Water") 
+
+df_all <- df_gp %>% 
+  left_join(df_startup %>% select(gpkey, crefo, cleantech_fields, text_en, web))
+
+# Add company websites
+df_url <- read_delim("I:\\!Projekte\\BMBF-2021-DynTOBI\\Daten\\url\\final\\url_panel.csv", delim="\t")
+
+df_all <- df_all %>% 
+  left_join(df_url[c("crefo", "year", "url")], by = c("crefo" = "crefo", "gr_jahr" = "year")) 
 
 
-
-
+saveRDS(df_all, file=here("01_Data/02_Firms/03_StartupPanel/df_gp.rds"))
 
 # Some quality checks -----------------------------------------------------
 
