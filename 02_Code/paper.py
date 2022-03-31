@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: light
 #       format_version: '1.5'
-#       jupytext_version: 1.12.0
+#       jupytext_version: 1.13.7
 #   kernelspec:
 #     display_name: Python 3 (ipykernel)
 #     language: python
@@ -17,6 +17,9 @@
 # # Mapping technologies to business models: 
 # ## An application to clean technologies and entrepreneurship
 # Code supporting the findings in the paper
+# -
+
+# !pip install --no-deps sentence-transformers tqdm numpy scikit-learn scipy nltk transformers tokenizers requests
 
 # +
 import pandas as pd
@@ -34,7 +37,7 @@ from sentence_transformers import util
 model = SentenceTransformer('paraphrase-MiniLM-L12-v2')
 model._first_module().max_seq_length = 510 # increase maximum sequence length which is 128 by default
 
-# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[]
+# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true
 # # Patent corpus 
 
 # + [markdown] jp-MarkdownHeadingCollapsed=true tags=[]
@@ -208,7 +211,7 @@ df_excel
 # Save to disk
 df_excel.to_excel(here(r'.\03_Model\temp\df_topic_words_markets.xlsx'), encoding='utf-8')
 
-# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true
+# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[] jp-MarkdownHeadingCollapsed=true jp-MarkdownHeadingCollapsed=true tags=[]
 # # Technology embeddings 
 # -
 
@@ -307,7 +310,7 @@ plt.annotate('', xy=(-35,-17), xytext=(-30,+15), textcoords='offset points',
 
 plt.annotate('', xy=(-20,10), xytext=(-20,+35), textcoords='offset points',
              fontsize=16, arrowprops=dict(facecolor='red', connectionstyle='arc3,rad=.1'))
-# + [markdown] tags=[]
+# + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true
 # # Proximity measure 
 
 
@@ -613,86 +616,19 @@ df_search.groupby('TECHNOLOGY').apply(lambda x: aggregate_by_cleantech(x, th=0.2
 df_CCS = df_temp.loc[df_temp.TECHNOLOGY=='CCS'].sort_values('TECHNOLOGY_PROXIMITY', ascending=False).head(10)
 df_CCS.merge(df_clean[['ID', 'SHORT_DESCRIPTION']], left_on='COMPANY', right_on='ID')[['COMPANY', 'TECHNOLOGY_PROXIMITY', 'SHORT_DESCRIPTION']].style
 
+# + [markdown] tags=[]
 # # Clean technologies and entrepreneurship 
+# -
 
-# ## Preparation 
+# Load embedded texts.
 
-# First create startup and technology embeddings.
+import pyreadr
 
-df_startup = pd.read_csv(here('01_Data/02_Firms/df_startup_firms_en.txt'), sep='\t', encoding='utf-8')
+df_startup = pyreadr.read_r(here("01_Data/02_Firms/03_StartupPanel/df_gp.rds"))
 
-print(f"The data comprises {df_startup.shape[0]} startups.")
+df_startup.toframe()
 
-# Drop samples without company description.
-
-df_startup = df_startup.loc[df_startup.LONG_DESCRIPTION_en.notnull()]
-df_startup.reset_index(inplace=True, drop=True)
-
-print(f"For {df_startup.shape[0]} startups a company description exists.")
-
-
-# Company Embeddings (all)
-def company2embedding(df, model, stop_words = [], lemmatize=True):
-       
-    company = df.index.values
-    
-    # Lemmatization, stop word removal and sentence embedding
-    if lemmatize:
-        # Conduct lemmatization
-        df['LONG_DESCRIPTION_en'] = df.DESC.apply(lambda x: string_to_lemma(x))
-        # Remove stop words
-        df['LONG_DESCRIPTION_en'] = df.DESC.apply(lambda x: [word for word in x if word not in stop_words])
-        # Concatenate list of words to whitespace seperated string
-        df['LONG_DESCRIPTION_en'] = df.DESC.apply(lambda x: ' '.join(str(i) for i in x))
-        # Create numpy array of sentence embedding
-        embeddings = model.encode(df.LONG_DESCRIPTION_en.values, show_progress_bar=True)
-    
-    # Stop word removal Sentence embedding
-    else:
-        # Remove stop words
-        #df['DESC'] = df.DESC.apply(lambda x: ' '.join(word.lower() for word in x.split() if word.lower() not in stop_words))
-        # Create numpy array of sentence embedding
-        embeddings = model.encode(df.LONG_DESCRIPTION_en.values, show_progress_bar=True)
-
-    return(company, embeddings)
-
-
-c, c_emb = company2embedding(df_startup, model=model, stop_words=[], lemmatize=False)
-
-# Read topic-proba-df
-df_topic_words = pd.read_csv(here(r'.\03_Model\temp\df_topic_words_markets.txt'), sep='\t', encoding='utf-8', index_col='Unnamed: 0')
-
-
-# Technology Embedding
-def technology2embedding(df, model, technology, n_words):
-    semantic_tech = ' '.join(str(word).lower() for word in list(df.loc[df.Topic==technology].head(n_words).Word.values))
-    embedding = model.encode(semantic_tech).reshape(1, -1)
-
-    return(embedding)
-
-
-# Now calculate proximity.
-
-# Embeddings and cosine similarity
-tech_proxs = []
-techs = cleantech_fields
-n_word = 15
-for tech in tqdm(techs):
-    t_emb = technology2embedding(df_topic_words, model, technology=tech, n_words=n_word)
-    tech_prox = cosine_similarity(c_emb, t_emb).reshape(len(c_emb),)
-    tech_prox[tech_prox < 0] = 0
-    tech_proxs.append(pd.DataFrame({'COMPANY': c, 'TECHNOLOGY': tech, 'TECHNOLOGY_PROXIMITY': tech_prox}))
-    df_prox = pd.concat(tech_proxs)
-
-df_prox.sort_values('TECHNOLOGY_PROXIMITY', ascending=False).head(20)
-
-df_startup = df_startup.merge(df_prox.pivot(index='COMPANY', columns='TECHNOLOGY', values='TECHNOLOGY_PROXIMITY'), left_index=True, right_index=True)
-
-df_temp = df_startup[['NAME', 'LONG_DESCRIPTION_en', 'Biofuels', 'Battery', 'CCS', 'Water', 'Adaption', 'E-Efficiency', 'Materials', 'E-Mobility', 'Grid', 'Generation']]
-
-df_temp.sort_values('Generation', ascending=False).head(5).style
-
-df_startup.to_csv(here('01_Data/02_Firms/df_startup_firms_en_prox.txt'), sep='\t', index=False)
+pd.DataFrame(df_startup, index)
 
 pal = sns.cubehelix_palette(n_colors=10, start=2, rot=0, dark=0.35, light=0.9, reverse=False, as_cmap=False)
 

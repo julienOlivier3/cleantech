@@ -10,6 +10,70 @@ df_raw <- read_delim(file = file.path(getwd(), "02_Data", "02_Gründungspanel", 
                      delim = "\t")
 
 df_text <- read_delim("Z:\\Archiv-IOEK\\FDZ\\HendrikHansmeier\\texte_minwelle_neu3.txt")
+df_text <- df_text %>% rename(c("w" = "firstwavetext")) %>% 
+  mutate(text_jahr = case_when(w == 59 ~ 2020,
+                               w == 58 ~ 2020,
+                               w == 57 ~ 2019,
+                               w == 56 ~ 2019,
+                               w == 55 ~ 2018,
+                               w == 54 ~ 2018,
+                               w == 53 ~ 2017,
+                               w == 52 ~ 2017,
+                               w == 51 ~ 2016,
+                               w == 50 ~ 2016,
+                               w == 49 ~ 2015,
+                               w == 48 ~ 2015,
+                               w == 47 ~ 2014,
+                               w == 46 ~ 2014,
+                               w == 45 ~ 2013,
+                               w == 44 ~ 2013,
+                               w == 43 ~ 2012,
+                               w == 42 ~ 2012,
+                               w == 41 ~ 2011,
+                               w == 40 ~ 2011,
+                               w == 39 ~ 2010,
+                               w == 38 ~ 2010,
+                               w == 37 ~ 2009,
+                               w == 36 ~ 2009,
+                               w == 35 ~ 2008,
+                               w == 34 ~ 2008,
+                               w == 33 ~ 2007,
+                               w == 32 ~ 2007,
+                               w == 31 ~ 2006,
+                               w == 30 ~ 2006,
+                               w == 29 ~ 2005,
+                               w == 28 ~ 2005,
+                               w == 27 ~ 2004,
+                               w == 26 ~ 2004,
+                               w == 25 ~ 2003,
+                               w == 24 ~ 2003,
+                               w == 23 ~ 2002,
+                               w == 22 ~ 2002,
+                               w == 21 ~ 2001,
+                               w == 20 ~ 2001,
+                               w == 19 ~ 2000,
+                               w == 18 ~ 2000,
+                               w == 17 ~ 1999,
+                               w == 16 ~ 1999,
+                               w == 15 ~ 1998,
+                               w == 14 ~ 1998,
+                               w == 13 ~ 1997,
+                               w == 12 ~ 1997,
+                               w == 11 ~ 1996,
+                               w == 10 ~ 1996,
+                               w == 9 ~ 1995,
+                               w == 8 ~ 1995,
+                               w == 7 ~ 1994,
+                               w == 6 ~ 1994,
+                               w == 5 ~ 1993,
+                               w == 4 ~ 1993,
+                               w == 3 ~ 1992,
+                               w == 2 ~ 1992,
+                               w == 1 ~ 1991))
+
+
+df_text %>% 
+  filter(gruend_jahr>text_jahr)
 
 df_raw <- df_raw %>% left_join(df_text)
 df_raw %>% 
@@ -48,11 +112,34 @@ df_raw %>%
   write_delim(here("01_Data/02_Firms/df_gp.txt"), delim = '\t')
 
 
+# Add further GP variables ------------------------------------------------
+df_raw <- read_delim(file = here("01_Data/02_Firms/03_StartupPanel/df_GP18_sustain_question.txt"), delim = "\t")
+df_startup <- read_delim(here("01_Data/02_Firms/df_gp_en_prox2.txt"), delim = '\t')
+df_startup <- df_raw %>% 
+  left_join(df_startup[c("crefo",  "gruend_jahr", "length", "text", "text_en", "web", "Adaption", "Battery", "Biofuels", "CCS", "E-Efficiency", "E-Mobility", "Generation", "Grid", "Materials", "Water" )])
+
 df_gp <- read_dta(file = file.path("T:\\2018\\Datenaufbereitung\\!Gesamtdaten\\gpges_kern_w1-w11.dta"))
+df_gp_spez <- read_dta(file = file.path("T:\\2018\\Datenaufbereitung\\!Gesamtdaten\\gpges_spez_w11.dta"))
+
+df_gp <- df_gp %>% 
+  filter(gpkey %in% df_startup$gpkey) %>% 
+  filter(jahr == 2017) %>% 
+  select(gpkey, jahr, gr_jahr, branche11, team, anzteam, fue, fuep, fuex, fuek, umsj, ums, gewj, gew, kapa, patj, anzpat, contains("foe"), contains("inno"), contains("produkt")) %>% 
+  left_join(df_gp_spez %>% select("gpkey", contains("umwelt")))
+
+cleantech_fields <- c("Adaption", "Battery", "Biofuels", "CCS", "E-Efficiency", "E-Mobility", "Generation", "Grid", "Materials", "Water") 
+
+df_all <- df_gp %>% 
+  left_join(df_startup %>% select(gpkey, crefo, cleantech_fields, text_en, web))
+
+# Add company websites
+df_url <- read_delim("I:\\!Projekte\\BMBF-2021-DynTOBI\\Daten\\url\\final\\url_panel.csv", delim="\t")
+
+df_all <- df_all %>% 
+  left_join(df_url[c("crefo", "year", "url")], by = c("crefo" = "crefo", "gr_jahr" = "year")) 
 
 
-
-
+saveRDS(df_all, file=here("01_Data/02_Firms/03_StartupPanel/df_gp.rds"))
 
 # Some quality checks -----------------------------------------------------
 
