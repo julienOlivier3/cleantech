@@ -17,9 +17,6 @@
 # # Mapping technologies to business models: 
 # ## An application to clean technologies and entrepreneurship
 # Code supporting the findings in the paper
-# -
-
-# !pip install --no-deps sentence-transformers tqdm numpy scikit-learn scipy nltk transformers tokenizers requests
 
 # +
 import pandas as pd
@@ -73,11 +70,12 @@ tech2market = dict(zip(df_map['CPC'], df_map['ABBREVIATION']))
 cleantech_fields = list(set(tech2market.values()))
 # remove ICT
 cleantech_fields = [field for field in cleantech_fields if field != 'ICT']
+cleantech_fields = ['Adaption', 'Battery', 'Biofuels', 'CCS', 'E-Efficiency', 'Generation', 'Grid', 'Materials', 'E-Mobility', 'Water']
 print(cleantech_fields)
 
 # Create dichotomous columns for each technology class (cleantech and non-cleantech).
 
-techclasses = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'Biofuels', 'Battery', 'CCS', 'Water', 'Adaption', 'E-Efficiency', 'Materials', 'E-Mobility', 'Grid', 'Generation']
+techclasses = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'Adaption', 'Battery', 'Biofuels', 'CCS', 'E-Efficiency', 'Generation', 'Grid', 'Materials', 'E-Mobility', 'Water']
 
 df_pat[techclasses] = 0
 
@@ -87,8 +85,10 @@ for techclass in techclasses:
 
 # Add a column reflecting if the patent has been assigned to *any* non-cleantech class.
 
+# + tags=[]
 df_pat['non-cleantech'] = df_pat[set(techclasses).difference(cleantech_fields)].apply(sum, axis=1) > 0
 df_pat['non-cleantech'] = df_pat['non-cleantech'].map({True: 1, False: 0})
+# -
 
 # Load similarity measures specifically designed for dichotomous variables (following the logic of F-scores).
 
@@ -112,19 +112,24 @@ corr_matrix
 
 # Correlation as figure.
 
+corr_matrix
+
 # + tags=[]
-sns.set_theme(style="white")
+sns.set_theme(style="white", font_scale=1.6)
 
 # Compute the correlation matrix
-corr = corr_matrix[techclasses]
-# corr = corr_matrix[cleantech_fields]
+#corr = corr_matrix[techclasses]
+corr = corr_matrix[cleantech_fields]
 
 # Generate a mask for the upper triangle
-mask = np.hstack(
-     (np.zeros_like(corr[set(techclasses).difference(cleantech_fields)], dtype=bool),
-     np.triu(np.ones_like(corr[cleantech_fields], dtype=bool)))
-)
-#mask = np.triu(np.ones_like(corr[cleantech_fields], dtype=bool))
+#mask = np.hstack(
+#     (np.zeros_like(corr[set(techclasses).difference(cleantech_fields)], dtype=bool),
+#     np.triu(np.ones_like(corr[cleantech_fields], dtype=bool)))
+#)
+mask = np.triu(np.ones_like(corr[cleantech_fields], dtype=bool))
+
+# Name cleaning
+corr.rename(index={'E-Mobility': 'Mobility'}, columns={'E-Mobility': 'Mobility'}, inplace=True)
 
 # Set up the matplotlib figure
 f, ax = plt.subplots(figsize=(10, 15))
@@ -135,6 +140,42 @@ cmap = sns.cubehelix_palette(start=2, rot=0, dark=0.2, light=1.8, reverse=False,
 # Draw the heatmap with the mask and correct aspect ratio
 heatm = sns.heatmap(corr,
                     mask=mask,
+                    cmap=cmap,
+                    #vmax=.3,
+                    vmin=0,
+                    center=0,
+                    square=True,
+                    linewidths=.5,
+                    cbar_kws={"shrink": .4})
+
+plot = heatm.set_yticklabels(heatm.get_yticklabels(), rotation=0)
+plot = heatm.set_xticklabels(heatm.get_xticklabels(), rotation=45, ha="right")
+
+# +
+sns.set_theme(style="white", font_scale=1.6)
+
+# Compute the correlation matrix
+#corr = corr_matrix[techclasses]
+corr = corr_matrix[techclasses[0:8]]
+
+# Generate a mask for the upper triangle
+#mask = np.hstack(
+#     (np.zeros_like(corr[set(techclasses).difference(cleantech_fields)], dtype=bool),
+#     np.triu(np.ones_like(corr[cleantech_fields], dtype=bool)))
+#)
+
+# Name cleaning
+corr.rename(index={'E-Mobility': 'Mobility'}, columns={'E-Mobility': 'Mobility'}, inplace=True)
+
+# Set up the matplotlib figure
+f, ax = plt.subplots(figsize=(10, 15))
+
+# Generate a custom diverging colormap
+cmap = sns.cubehelix_palette(start=2, rot=0, dark=0.2, light=1.8, reverse=False, as_cmap=True)
+
+# Draw the heatmap with the mask and correct aspect ratio
+heatm = sns.heatmap(corr,
+                    #mask=mask,
                     cmap=cmap,
                     #vmax=.3,
                     vmin=0,
@@ -246,7 +287,7 @@ from sklearn.manifold import TSNE
 # Technology Embedding
 def technology2embedding(df, model, technology, n_words):
     semantic_tech = ' '.join(str(word).lower() for word in list(df.loc[df.Topic==technology].head(n_words).Word.values))
-    embedding = model.encode(semantic_tech).reshape(1, -1)
+    embedding = model.encode(semantic_tech)
 
     return(embedding)
 
@@ -277,8 +318,10 @@ def tsne(df, model, technology_labels, technology_lengths):
 
 df_tsne = tsne(df=df_topic_words,
                model=model,
-               technology_labels=['Water', 'Grid', 'ICT', 'E-Efficiency', 'E-Mobility', 'Adaption', 'Generation', 'CCS', 'Biofuels', 'Materials', 'Battery'], 
+               technology_labels=['Adaption', 'Battery', 'Biofuels', 'CCS', 'E-Efficiency', 'Generation', 'Grid', 'Materials', 'E-Mobility', 'Water'], 
                technology_lengths=[10,20,30,40,100])
+
+df_tsne.loc[df_tsne.iloc[:,0]=='E-Mobility','Clean technology ($t$)'] = 'Mobility'
 
 # +
 sns.set(style="whitegrid") 
@@ -302,14 +345,27 @@ sns.relplot(x = "Component 1", y = "Component 2",
 #g.ax.xaxis.grid(True, "minor", linewidth=.25)
 #g.ax.yaxis.grid(True, "minor", linewidth=.25)
 #g.despine(left=True, bottom=True)
-plt.annotate('', xy=(30,-2), xytext=(+30,-15), textcoords='offset points',
+plt.annotate('', xy=(30,-5), xytext=(+30,-15), textcoords='offset points',
+             fontsize=16, arrowprops=dict(facecolor='red', connectionstyle='arc3,rad=-.2'))
+
+plt.annotate('', xy=(-35,-12), xytext=(-30,+15), textcoords='offset points',
              fontsize=16, arrowprops=dict(facecolor='red', connectionstyle='arc3,rad=.2'))
 
-plt.annotate('', xy=(-35,-17), xytext=(-30,+15), textcoords='offset points',
-             fontsize=16, arrowprops=dict(facecolor='red', connectionstyle='arc3,rad=.2'))
+plt.annotate('', xy=(2,7), xytext=(-30,+25), textcoords='offset points',
+             fontsize=16, arrowprops=dict(facecolor='red', connectionstyle='arc3,rad=.15'))
 
-plt.annotate('', xy=(-20,10), xytext=(-20,+35), textcoords='offset points',
-             fontsize=16, arrowprops=dict(facecolor='red', connectionstyle='arc3,rad=.1'))
+plt.annotate('', xy=(28,30), xytext=(15,+35), textcoords='offset points',
+             fontsize=16, arrowprops=dict(facecolor='red', connectionstyle='arc3,rad=-.05'))
+# -
+df_pat = df_pat.loc[df_pat.LEMMAS.apply(len)>0]
+
+abstracts = df_pat.ABSTRACT.values
+abstracts.shape
+
+embeddings = model.encode(abstracts[:1000],  show_progress_bar=True)
+
+embeddings.shape[0]/abstracts.shape[0]*100
+
 # + [markdown] tags=[] jp-MarkdownHeadingCollapsed=true
 # # Proximity measure 
 
@@ -622,24 +678,65 @@ df_CCS.merge(df_clean[['ID', 'SHORT_DESCRIPTION']], left_on='COMPANY', right_on=
 
 # Load embedded texts.
 
-import pyreadr
+df_startup = pd.read_csv(here("01_Data/02_Firms/03_StartupPanel/df_gp_impute.txt"), sep="\t")
+df_startup.rename(columns={'E_Mobility': 'E-Mobility', 'E_Efficiency': 'E-Efficiency'}, inplace=True)
+df_startup.shape
 
-df_startup = pyreadr.read_r(here("01_Data/02_Firms/03_StartupPanel/df_gp.rds"))
+# + [markdown] tags=[]
+# ## Descriptives company descriptions
+# -
 
-df_startup.toframe()
+print(f"There are {len(df_startup)} distinct start-ups in the survey for which business summaries exist.")
 
-pd.DataFrame(df_startup, index)
+from util import nlp
+tqdm.pandas()
 
-pal = sns.cubehelix_palette(n_colors=10, start=2, rot=0, dark=0.35, light=0.9, reverse=False, as_cmap=False)
+df_startup['TOKEN_LEN'] = df_startup.text_en.progress_apply(lambda x: len(nlp(x)))
+df_startup['DIGIT_LEN'] = df_startup.text_en.progress_apply(lambda x: len(x))
+df_startup['TOKENS'] = df_startup.text_en.progress_apply(lambda x: [token for token in nlp(x)])
+
+df_startup.TOKEN_LEN.describe()
+
+# Vocabulary size
+df_startup = df_startup.reset_index(drop=True)
+vocab_list = []
+for i in range(df_startup.shape[0]):
+    temp = df_startup.iloc[i].TOKENS
+    vocab_list.extend(temp)
+len(set(vocab_list))
+
+# ## Cleantech entrants
+
+cleantech_fields = ['Adaption', 'Battery', 'Biofuels', 'CCS', 'E-Efficiency', 'Grid', 'Generation', 'Materials', 'E-Mobility' , 'Water']
+
+df_prox = pd.melt(df_startup[cleantech_fields], var_name="Clean technology field", value_name="Technological proximity")
+df_prox.loc[df_prox["Technological proximity"].notnull()]
+
+df_prox.loc[df_prox.iloc[:,0]=='E-Mobility','Clean technology field'] = 'Mobility'
 
 # +
-plt.figure(figsize = (12, 8))
-
+plt.rcParams['text.usetex'] = True
+plt.figure(figsize = (9, 5))
 sns.set(style="whitegrid")
+palette = sns.cubehelix_palette(n_colors=10, start=2, rot=0, dark=0.35, light=0.9, reverse=False, as_cmap=False)
 
-
-ax = sns.swarmplot(x="TECHNOLOGY", y="TECHNOLOGY_PROXIMITY", data=df_prox, palette=pal,
-                   dodge=True, alpha=0.5)
-ax = sns.boxplot(x="TECHNOLOGY", y="TECHNOLOGY_PROXIMITY", data=df_prox, showfliers = False, color='lightgray')
-
+#ax = sns.swarmplot(x="Clean technology field", y="Technological proximity", data=df_prox, palette=pal,
+#                   dodge=True, alpha=0.5)
+ax = sns.boxplot(x="Clean technology field", y="Technological proximity", data=df_prox, color='lightgray',
+                linewidth=1, 
+                #whis=(1, 99), 
+                palette=palette, 
+                showfliers=True, 
+                boxprops=dict(alpha=.4), 
+                flierprops=dict(markerfacecolor="r", markersize=5, linestyle='none', markeredgecolor='r', alpha=0.8))
+ax.axhline(y=0.27, xmin=0, xmax=0.03, linestyle='--', linewidth=1, color='r')
+ax.axhline(y=0.27, xmin=0.18, linestyle='--', linewidth=1, color='r')
+ax.text(x=-0.1, y=0.265, s=r'\textsc{TechProx}$_{min}$', fontsize=10)
 plt.show()
+# -
+
+df_startup[['gpkey', 'tech_prox', 'tech', 'text_en']].sort_values('tech_prox', ascending=False).head(20).style
+
+df_startup.tech.value_counts(dropna=False)
+
+print(f"There are {len(df_startup.loc[df_startup.tech_prox>0.27])} distinct start-ups in the survey classified as cleantech.")

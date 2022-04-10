@@ -245,8 +245,8 @@ df_model <- kNN(df_model,
 df_model %>% 
   map(function(x) sum(is.na(x))) 
 
-#saveRDS(df_model, file=here("01_Data/02_Firms/03_StartupPanel/df_gp_impute.rds"))
-#df_model %>% write_delim(file=here("01_Data/02_Firms/03_StartupPanel/df_gp_impute.txt"), delim="\t")
+saveRDS(df_model, file=here("01_Data/02_Firms/03_StartupPanel/df_gp_impute.rds"))
+df_model %>% write_delim(file=here("01_Data/02_Firms/03_StartupPanel/df_gp_impute.txt"), delim="\t")
 
 # Descriptive statistics --------------------------------------------------
 desc_list <- vector(mode = "list", length = 2)
