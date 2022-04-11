@@ -245,8 +245,8 @@ df_model <- kNN(df_model,
 df_model %>% 
   map(function(x) sum(is.na(x))) 
 
-saveRDS(df_model, file=here("01_Data/02_Firms/03_StartupPanel/df_gp_impute.rds"))
-df_model %>% write_delim(file=here("01_Data/02_Firms/03_StartupPanel/df_gp_impute.txt"), delim="\t")
+#saveRDS(df_model, file=here("01_Data/02_Firms/03_StartupPanel/df_gp_impute.rds"))
+#df_model %>% write_delim(file=here("01_Data/02_Firms/03_StartupPanel/df_gp_impute.txt"), delim="\t")
 
 # Descriptive statistics --------------------------------------------------
 desc_list <- vector(mode = "list", length = 2)
@@ -301,7 +301,7 @@ for (i in seq_along(cleantech_fields)){
 }
 
 df_latex <- create_reg_tab(df_res, all_sector = TRUE, all_product = TRUE)
-df_latex
+df_latex <- df_latex %>% select(variable:E_Efficiency, Generation:Materials, E_Mobility, Water)
 
 print.xtable(df_latex, type = "latex")
 
@@ -328,7 +328,7 @@ for (i in seq_along(cleantech_fields)){
 }
 
 df_latex <- create_reg_tab(df_res, all_sector = TRUE, all_product = TRUE)
-df_latex
+df_latex <- df_latex %>% select(variable:E_Efficiency, Generation:Materials, E_Mobility, Water)
 
 print.xtable(df_latex, type = "latex")
 
@@ -417,19 +417,19 @@ print.xtable(df_latex, type = "latex")
 ### Umweltinnovation ######################################################
 ### TechProx
 
+
 model_equations <- c(  
   "umwelt_inno_cat ~ tech_prox + branche11",
-  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes)",
+  #"umwelt_inno_cat ~ tech_prox + branche11 + log(bes)",
   "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age",
-  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue",
-  #"umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + scale(fuek_ums)",
-  #"umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fuep_bes",
-  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + log(fuek + 1)",
-  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + foe",
-  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + foe + umsj",
-  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + foe + log(ums + 1)",
-  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + foe + umsj + gewj",
-  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + foe + umsj + gewj + produkt_kat + uni"
+  #"umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue",
+  #"umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes",
+  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe",
+  #"umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj",
+  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj + gewj",
+  #"umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj + gewj + anzteam",
+  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj + gewj + anzteam + uni",
+  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj + gewj + anzteam + uni + produkt_kat"
 )
 
 df_reg <- df_model %>% 
@@ -445,24 +445,19 @@ for (i in seq_along(model_equations)){
     df_res <- df_temp
   }
   else{
-    df_res <- df_res %>% full_join(df_temp, by = "variable", )
+    df_res <- df_res %>% full_join(df_temp, by = "variable")
   }
 }
 
-df_bottom <- df_res %>% filter(variable %in% bottom)
-df_top <- df_res %>% filter(!(variable %in% bottom))
-
-df_res <- df_top %>% 
-  bind_rows(df_bottom)
-
-
-df_latex <- df_res %>% 
-  filter(!str_detect(variable, "branche.{1,}")) %>% 
-  filter(!str_detect(variable, "produkt.{1,}")) %>% 
-  filter(!str_detect(variable, "ja"))
+df_latex <- create_reg_tab(df_res)
 df_latex
 
-print.xtable(df_latex, type = "latex")
+print.xtable(df_latex, 
+             type = "latex", 
+             #include.rownames = FALSE,
+             #floating = FALSE, 
+             format.args = list(digits = 3, big.mark = " ", decimal.mark = ","))
+
 
 
 
@@ -470,7 +465,8 @@ print.xtable(df_latex, type = "latex")
 
 model_equations <- lapply(model_equations, function(x) str_replace(x, "tech_prox", "cleantech")) %>% as_vector()
 
-df_reg <- df_model
+df_reg <- df_model %>% 
+  mutate(tech_prox = tech_prox*100) 
 df_res <- tibble()
 bottom <- c("N", "BIC", "Pseudo_R2")
 for (i in seq_along(model_equations)){
@@ -486,20 +482,15 @@ for (i in seq_along(model_equations)){
   }
 }
 
-df_bottom <- df_res %>% filter(variable %in% bottom)
-df_top <- df_res %>% filter(!(variable %in% bottom))
+df_latex <- create_reg_tab(df_res)
+df_latex
 
-df_res <- df_top %>% 
-  bind_rows(df_bottom)
+print.xtable(df_latex, 
+             type = "latex", 
+             #include.rownames = FALSE,
+             #floating = FALSE, 
+             format.args = list(digits = 3, big.mark = " ", decimal.mark = ","))
 
-
-
-df_latex <- df_res %>% 
-  filter(!str_detect(variable, "branche.{1,}")) %>% 
-  filter(!str_detect(variable, "produkt.{1,}")) %>% 
-  filter(!str_detect(variable, "ja"))
-
-print.xtable(df_latex, type = "latex")
 
 
 
@@ -511,48 +502,43 @@ print.xtable(df_latex, type = "latex")
 
 model_equations <- c(  
   "umwelt_wirk_bin ~ tech_prox + branche11",
-  "umwelt_wirk_bin ~ tech_prox + branche11 + log(bes)",
+  #"umwelt_wirk_bin ~ tech_prox + branche11 + log(bes)",
   "umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age",
-  "umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age + fue",
-  #"umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age + log(fuek_ums + 1)",
-  #"umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age + fuep_bes",
-  "umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age + log(fuek + 1)",
-  "umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age + fue + foe",
-  "umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age + fue + foe + umsj",
-  "umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age + fue + foe + log(ums + 1)",
-  "umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age + fue + foe + umsj + gewj",
-  "umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age + fue + foe + umsj + gewj + produkt_kat"
+  #"umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age + fue",
+  #"umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes",
+  "umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe",
+  #"umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj",
+  "umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj + gewj",
+  #"umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj + gewj + anzteam",
+  "umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj + gewj + anzteam + uni",
+  "umwelt_wirk_bin ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj + gewj + anzteam + uni + produkt_kat"
 )
 
-df_reg <- df_model  
+df_reg <- df_model %>% 
+  mutate(tech_prox = tech_prox*100) 
 df_res <- tibble()
 bottom <- c("N", "BIC", "Pseudo_R2")
 for (i in seq_along(model_equations)){
   model_equation <- model_equations[i]
-  polr_mod <- glm(formula = as.formula(model_equation), data = df_reg, na.action = na.omit,  family = binomial(link = "probit"))
+  polr_mod <- glm(formula = as.formula(model_equation), data = df_reg, na.action = na.omit, family = binomial(link = "logit"))
   df_temp <- clean_results_logit(model = polr_mod)
   colnames(df_temp)  <- c("variable", i)
   if(i == 1){
     df_res <- df_temp
   }
   else{
-    df_res <- df_res %>% full_join(df_temp, by = "variable", )
+    df_res <- df_res %>% full_join(df_temp, by = "variable")
   }
 }
 
-df_bottom <- df_res %>% filter(variable %in% bottom)
-df_top <- df_res %>% filter(!(variable %in% bottom))
+df_latex <- create_reg_tab(df_res)
+df_latex
 
-df_res <- df_top %>% 
-  bind_rows(df_bottom)
-
-
-df_latex <- df_res %>% 
-  filter(!str_detect(variable, "branche.{1,}")) %>% 
-  filter(!str_detect(variable, "produkt.{1,}")) %>% 
-  filter(!str_detect(variable, "ja"))
-
-print.xtable(df_latex, type = "latex")
+print.xtable(df_latex, 
+             type = "latex", 
+             #include.rownames = FALSE,
+             #floating = FALSE, 
+             format.args = list(digits = 3, big.mark = " ", decimal.mark = ","))
 
 
 ### cleantech
@@ -596,48 +582,45 @@ print.xtable(df_latex, type = "latex")
 
 model_equations <- c(  
   "umwelt_inno_bin ~ tech_prox + branche11",
-  "umwelt_inno_bin ~ tech_prox + branche11 + log(bes)",
+  #"umwelt_inno_bin ~ tech_prox + branche11 + log(bes)",
   "umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age",
-  "umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age + fue",
-  #"umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age + log(fuek_ums + 1)",
-  #"umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age + fuep_bes",
-  "umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age + log(fuek + 1)",
-  "umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age + fue + foe",
-  "umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age + fue + foe + umsj",
-  "umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age + fue + foe + log(ums + 1)",
-  "umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age + fue + foe + umsj + gewj",
-  "umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age + fue + foe + umsj + gewj + produkt_kat"
+  #"umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age + fue",
+  #"umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes",
+  "umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe",
+  #"umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj",
+  "umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj + gewj",
+  #"umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj + gewj + anzteam",
+  "umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj + gewj + anzteam + uni",
+  "umwelt_inno_bin ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj + gewj + anzteam + uni + produkt_kat"
 )
 
-df_reg <- df_model
+df_reg <- df_model #%>% 
+  #mutate(tech_prox = tech_prox*100) 
 df_res <- tibble()
 bottom <- c("N", "BIC", "Pseudo_R2")
 for (i in seq_along(model_equations)){
   model_equation <- model_equations[i]
-  polr_mod <- glm(formula = as.formula(model_equation), data = df_reg, na.action = na.omit,  family = binomial(link = "probit"))
+  polr_mod <- glm(formula = as.formula(model_equation), data = df_reg, na.action = na.omit,  family = binomial(link = "logit"))
   df_temp <- clean_results_logit(model = polr_mod)
   colnames(df_temp)  <- c("variable", i)
   if(i == 1){
     df_res <- df_temp
   }
   else{
-    df_res <- df_res %>% full_join(df_temp, by = "variable", )
+    df_res <- df_res %>% full_join(df_temp, by = "variable")
   }
 }
 
-df_bottom <- df_res %>% filter(variable %in% bottom)
-df_top <- df_res %>% filter(!(variable %in% bottom))
+df_latex <- create_reg_tab(df_res)
+df_latex <- df_latex %>% mutate(variable = factor(variable, c("\\textsc{TechProx}$_{max}$", "log(size)", "age", "subsidy", "R\\&D", "R\\&D intensity", 
+                                    "returns", "break even", "team size", "university", "Sector controls", "Product type controls", "$N$", "Pseudo $R^2$"))) %>% 
+  arrange(variable)
 
-df_res <- df_top %>% 
-  bind_rows(df_bottom)
-
-
-df_latex <- df_res %>% 
-  filter(!str_detect(variable, "branche.{1,}")) %>% 
-  filter(!str_detect(variable, "produkt.{1,}")) %>% 
-  filter(!str_detect(variable, "ja"))
-
-print.xtable(df_latex, type = "latex")
+print.xtable(df_latex, 
+             type = "latex", 
+             #include.rownames = FALSE,
+             #floating = FALSE, 
+             format.args = list(digits = 3, big.mark = " ", decimal.mark = ","))
 
 
 ### cleantech
@@ -649,7 +632,7 @@ df_res <- tibble()
 bottom <- c("N", "BIC", "Pseudo_R2")
 for (i in seq_along(model_equations)){
   model_equation <- model_equations[i]
-  polr_mod <- glm(formula = as.formula(model_equation), data = df_reg, na.action = na.omit,  family = binomial(link = "probit"))
+  polr_mod <- glm(formula = as.formula(model_equation), data = df_reg, na.action = na.omit,  family = binomial(link = "logit"))
   df_temp <- clean_results_logit(model = polr_mod)
   colnames(df_temp)  <- c("variable", i)
   if(i == 1){
@@ -660,19 +643,17 @@ for (i in seq_along(model_equations)){
   }
 }
 
-df_bottom <- df_res %>% filter(variable %in% bottom)
-df_top <- df_res %>% filter(!(variable %in% bottom))
+df_latex <- create_reg_tab(df_res)
+df_latex <- df_latex %>% mutate(variable = factor(variable, c("\\textsc{TechProx}$_{max}$", "log(size)", "age", "subsidy", "R\\&D", "R\\&D intensity", 
+                                                              "returns", "break even", "team size", "university", "Sector controls", "Product type controls", "$N$", "Pseudo $R^2$"))) %>% 
+  arrange(variable)
 
-df_res <- df_top %>% 
-  bind_rows(df_bottom)
+print.xtable(df_latex, 
+             type = "latex", 
+             #include.rownames = FALSE,
+             #floating = FALSE, 
+             format.args = list(digits = 3, big.mark = " ", decimal.mark = ","))
 
-
-df_latex <- df_res %>% 
-  filter(!str_detect(variable, "branche.{1,}")) %>% 
-  filter(!str_detect(variable, "produkt.{1,}")) %>% 
-  filter(!str_detect(variable, "ja"))
-
-print.xtable(df_latex, type = "latex")
 
 
 
