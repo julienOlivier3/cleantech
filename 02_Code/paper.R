@@ -612,7 +612,7 @@ for (i in seq_along(model_equations)){
 }
 
 df_latex <- create_reg_tab(df_res)
-df_latex <- df_latex %>% mutate(variable = factor(variable, c("\\textsc{TechProx}$_{max}$", "log(size)", "age", "subsidy", "R\\&D", "R\\&D intensity", 
+df_latex <- df_latex %>% mutate(variable = factor(variable, c("\\textsc{CleanTech}", "log(size)", "age", "subsidy", "R\\&D", "R\\&D intensity", 
                                     "returns", "break even", "team size", "university", "Sector controls", "Product type controls", "$N$", "Pseudo $R^2$"))) %>% 
   arrange(variable)
 
