@@ -1,7 +1,6 @@
-library(tidyverse)
-library(ggforce)
-library(here)
-library(tikzDevice)
+if(!require(pacman)) install.packages(pacman)
+p_load(tidyverse, ggforce, here, tikzDevice)
+
 source(here("02_Code/util.R"))
 
 start <- c(x = 0, y = 0)
