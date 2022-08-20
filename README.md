@@ -9,4 +9,5 @@ Web-scraped business summaries can be reproduced using the R-scripts
 - 05.1_create_firmwebdata_cleantech.R
 - 05.2_create_firmwebdata_nasdaq.R
 - 05.3_create_firmwebdata_sp.R
+
 Patent data, business registry data and survey data are proprietary and cannot be shared via GitHub. However, data is available via the the research data center of ZEW ([ZEW-FDZ](https://kooperationen.zew.de/en/zew-fdz/home))
