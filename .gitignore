@@ -9,8 +9,7 @@
 02_Code/01_Old
 01_Data
 03_Model
-04_Writing/01_Figures/*.ipynb
+04_Writing
 .virtual_documents/
 .rcache
 .pycache
-04_Writing/*.pdf
