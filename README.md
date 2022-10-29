@@ -11,3 +11,7 @@ Web-scraped business summaries can be reproduced using the R-scripts
 - 05.3_create_firmwebdata_sp.R
 
 Patent data, business registry data and survey data are proprietary and cannot be shared via GitHub. However, data is available via the the research data center of ZEW ([ZEW-FDZ](https://kooperationen.zew.de/en/zew-fdz/home)).
+
+**Conference Proceedings**:<br/>
+The paper has been published as part of the 26th International Conference on Science, Technology and Innovation Indicators (STI 2022) conference proceedings:
+https://zenodo.org/record/6979608#.YyQlznZByHs
