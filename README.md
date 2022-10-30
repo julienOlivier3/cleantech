@@ -15,3 +15,6 @@ Patent data, business registry data and survey data are proprietary and cannot b
 **Conference Proceedings**:<br/>
 The paper has been published as part of the 26th International Conference on Science, Technology and Innovation Indicators (STI 2022) conference proceedings:
 https://zenodo.org/record/6979608#.YyQlznZByHs
+
+**Presentation**:<br/>
+Presentation slides of the paper can be found [here](https://raw.githack.com/julienOlivier3/cleantech/main/pres.pdf).
