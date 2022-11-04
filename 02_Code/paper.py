@@ -714,8 +714,9 @@ df_prox.loc[df_prox["Technological proximity"].notnull()]
 
 df_prox.loc[df_prox.iloc[:,0]=='E-Mobility','Clean technology field'] = 'Mobility'
 
-# Write data for resembling the below figure in R
-df_prox.to_csv(here("01_Data/02_Firms/03_StartupPanel/df_prox.txt"), sep="\t", index=False)
+# + active=""
+# # Write data for resembling the below figure in R
+# df_prox.to_csv(here("01_Data/02_Firms/03_StartupPanel/df_prox.txt"), sep="\t", index=False)
 
 # +
 plt.rcParams['text.usetex'] = True
@@ -750,6 +751,11 @@ for tech in techs:
 pd.DataFrame(best_list).sort_values('tech').style
 
 df_startup.loc[df_startup.CCS==df_startup.CCS.max(), ['gpkey', 'tech', 'tech_prox', 'CCS', 'text_en']].style
+
+df_startup.columns
+
+df_startup[['gpkey', 'Adaption', 'Battery', 'Biofuels', 'CCS', 'E-Efficiency', 'E-Mobility',
+       'Generation', 'Grid', 'Materials', 'Water', 'tech_prox', 'text_en']].sort_values('Battery').head(10).style
 
 df_startup.tech.value_counts(dropna=False)
 
