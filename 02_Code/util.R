@@ -108,12 +108,12 @@ coalesce_join <- function(x, y, by = NULL, suffix = c(".x", ".y"), join = dplyr:
 ## Function to plot table within pipe =====================================
 tab <- function(.data, var){
   dtype <- .data %>% 
-    select({{var}}) %>% 
+    dplyr::select({{var}}) %>% 
     as_vector() %>% 
     class()
   
   .data %>% 
-    select({{var}}) %>% 
+    dplyr::select({{var}}) %>% 
     table(useNA = 'always') %>% 
     as_tibble() %>% 
     rename(!!quo(!!ensym(var)) := '.') %>% 

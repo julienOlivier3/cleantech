@@ -1,6 +1,6 @@
 # Setup -------------------------------------------------------------------
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(here, labelled, hablar, MASS,VIM, Hmisc, psych, margins, pscl, xtable, tidyverse)
+pacman::p_load(here, tidyverse, labelled, hablar, MASS,VIM, Hmisc, psych, margins, pscl, xtable)
 source(here("02_Code/util.R"))
 
 
@@ -25,7 +25,7 @@ clean_results <- function(model, ndigits_display=3, ndigits_round=3){
       p_value < 0.1 & p_value >= 0.05 ~ paste0(clean_digit(odds, ndigits_display, ndigits_round), "*"),
       p_value >= 0.1 ~ paste0(clean_digit(odds, ndigits_display, ndigits_round))
     )) %>% 
-    select(variable, odds_p) %>% 
+    dplyr::select(variable, odds_p) %>% 
     bind_rows(tibble(variable = "N", odds_p = as.character(nobs(model)))) %>% 
     bind_rows(tibble(variable = "BIC", odds_p = as.character(clean_digit(BIC(model), ndigits_display, ndigits_round)))) %>% 
     bind_rows(tibble(variable = "Pseudo_R2", odds_p = as.character(clean_digit(pR2(model)['McFadden'], ndigits_display, ndigits_round)))) 
@@ -35,7 +35,7 @@ clean_results <- function(model, ndigits_display=3, ndigits_round=3){
 
 # Function to extract relevant info from Logit model
 clean_results_logit <- function(model, ndigits_display=3, ndigits_round=3){
-  helper <- summary(model)$coefficients %>% as_tibble(rownames = "factor") %>% select(factor) %>% filter(!(factor == "(Intercept)")) %>% as_vector()
+  helper <- summary(model)$coefficients %>% as_tibble(rownames = "factor") %>% dplyr::select(factor) %>% filter(!(factor == "(Intercept)")) %>% as_vector()
   
   res <- margins_summary(model) %>% 
     as_tibble() %>% 
@@ -45,7 +45,7 @@ clean_results_logit <- function(model, ndigits_display=3, ndigits_round=3){
       p < 0.1 & p >= 0.05 ~ paste0(clean_digit(AME, ndigits_display, ndigits_round), "*"),
       p >= 0.1 ~ paste0(clean_digit(AME, ndigits_display, ndigits_round))
     )) %>% 
-    select(factor, ame_p) %>% 
+    dplyr::select(factor, ame_p) %>% 
     arrange(helper) %>% 
     bind_rows(tibble(factor = "N", ame_p = as.character(nobs(model)))) %>% 
     bind_rows(tibble(factor = "BIC", ame_p = as.character(clean_digit(BIC(model), ndigits_display, ndigits_round)))) %>% 
@@ -126,9 +126,9 @@ cleantech_fields <- c("Adaption", "Battery", "Biofuels", "CCS", "E_Efficiency", 
 # Select relevant columns for regression
 df_model <- df_startup %>% 
   mutate(age = 2017 - gr_jahr) %>% 
-  mutate(foe = ifelse(rowSums(select(., foe_ba, foe_kfw, foe_land, foe_kokr, foe_bueba, foe_bund, foe_eu))>0, 1, 0)) %>% 
+  mutate(foe = ifelse(rowSums(dplyr::select(., foe_ba, foe_kfw, foe_land, foe_kokr, foe_bueba, foe_bund, foe_eu))>0, 1, 0)) %>% 
   mutate(ums_hilf = ifelse(ums==0, 1, ums)) %>% 
-  mutate(bes_hilf = rowSums(select(., anzteam, bes_l, bes_m, bes_h), na.rm = TRUE),
+  mutate(bes_hilf = rowSums(dplyr::select(., anzteam, bes_l, bes_m, bes_h), na.rm = TRUE),
          bes_hilf = ifelse(bes_hilf==0, NA, bes_hilf),
          bes = ifelse(bes_hilf < fuep, fuep, bes_hilf)) %>% 
   mutate(fuek_ums = fuek/ums_hilf,
@@ -167,13 +167,13 @@ df_model <- df_startup %>%
   mutate(umwelt_wirk = sum(c_across(umwelt_wirk_gesverbr:umwelt_wirk_haltbar), na.rm = FALSE),
          umwelt_inno = sum(c_across(umwelt_inno_gesverbr:umwelt_inno_haltbar), na.rm = FALSE)) %>% 
   ungroup() %>% 
-  select(gpkey, age, produkt_kat, branche11, team, anzteam, uni, foe, bes, 
+  dplyr::select(gpkey, age, produkt_kat, branche11, team, anzteam, uni, foe, bes, 
          fue, fuep, fuek_ums, fuep_bes, fuex, fuek, patj, anzpat, umsj, ums, gewj, gew, 
          contains("umwelt_wirk"), contains("umwelt_inno"), cleantech_fields, url, web, text_en)
 
 # Create technology column
 df_tech <- df_startup %>% 
-  select(gpkey, cleantech_fields) %>% 
+  dplyr::select(gpkey, cleantech_fields) %>% 
   pivot_longer(cleantech_fields, names_to = "tech", values_to = "tech_prox") %>% 
   group_by(gpkey) %>% 
   filter(tech_prox == max(tech_prox)) %>% 
@@ -193,7 +193,7 @@ df_model %>% tab(umwelt_inno_cat)
 
 
 df_startup %>% 
-  select(gpkey, cleantech_fields) %>% 
+  dplyr::select(gpkey, cleantech_fields) %>% 
   pivot_longer(cleantech_fields, names_to = "tech", values_to = "tech_prox") %>% 
   ggplot() +
   geom_boxplot(aes(x=tech, y=tech_prox))
@@ -202,12 +202,12 @@ df_startup %>%
 
 # Create balanced cross section -------------------------------------------
 df_model %>% 
-  select(umwelt_wirk_cat, umwelt_inno_cat) %>% 
+  dplyr::select(umwelt_wirk_cat, umwelt_inno_cat) %>% 
   rowwise() %>% 
   map(function(x) table(x, useNA = "always"))
 
 df_model %>% 
-  select(umwelt_wirk_cat, umwelt_inno_cat) %>% 
+  dplyr::select(umwelt_wirk_cat, umwelt_inno_cat) %>% 
   rowwise() %>% 
   map(function(x) sum(!is.na(x)))
 
@@ -221,7 +221,7 @@ print(paste("Drop", n_all-n_1, "observations w/o response to environmental quest
 # Impute missing descriptions with website info
 df_model %>% 
   filter(is.na(cleantech) & !is.na(url)) %>% 
-  select(gpkey, url) #%>% # Imputation done!
+  dplyr::select(gpkey, url) #%>% # Imputation done!
 #write_csv(here("01_Data/02_Firms/03_StartupPanel/df_no_desc_but_url.csv"))
 
 # Drop observations w/o textual information
@@ -253,7 +253,7 @@ desc_list <- vector(mode = "list", length = 2)
 names(desc_list) <- c("Hmisc", "psych")
 
 #desc_list[[1]] <- apply(df_model %>% select(tech_prox, cleantech, bes, age, foe, fue, fuep_bes, fuek_ums, umsj, ums, gewj, gew, team, anzteam, uni), MARGIN = 2, function(x) Hmisc::describe(x))
-desc_list[[2]] <- sapply(df_model %>% select(tech_prox, cleantech, bes, age, fue, fuep_bes, umsj, gewj, foe, anzteam, uni), function(x) psych::describe(x))
+desc_list[[2]] <- sapply(df_model %>% dplyr::select(tech_prox, cleantech, bes, age, fue, fuep_bes, umsj, gewj, foe, anzteam, uni), function(x) psych::describe(x))
 
 desc_list$psych %>% 
   as_tibble(rownames = "Variable") %>% 
@@ -420,16 +420,17 @@ print.xtable(df_latex, type = "latex")
 
 model_equations <- c(  
   "umwelt_inno_cat ~ tech_prox + branche11",
-  #"umwelt_inno_cat ~ tech_prox + branche11 + log(bes)",
-  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age",
+  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes)",
+  #"umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age",
   #"umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue",
   #"umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes",
-  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe",
+  #"umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe",
+  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + fue + foe",
   #"umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj",
-  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj + gewj",
+  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + fue + foe + umsj + gewj",
   #"umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj + gewj + anzteam",
-  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj + gewj + anzteam + uni",
-  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes) + age + fue + fuep_bes + foe + umsj + gewj + anzteam + uni + produkt_kat"
+  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes)  + fue  + foe + umsj + gewj + anzteam + uni",
+  "umwelt_inno_cat ~ tech_prox + branche11 + log(bes)  + fue  + foe + umsj + gewj + anzteam + uni + produkt_kat"
 )
 
 df_reg <- df_model %>% 
